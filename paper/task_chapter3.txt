@@ -1,0 +1,67 @@
+สรุปงาน: บทที่ 3 การวิเคราะห์และออกแบบระบบ (อัปเดต 2026-07-08)
+=========================================================
+
+อัปเดตรอบ 3 (double-check กับ backend)
+--------------------------------------
+ไล่เทียบ src/api/urls.py + endpoints.py + src/service/ ทุกฟังก์ชันแล้ว เพิ่มที่ขาด:
+- 4.4 รีเซ็ตสายการแข่งขัน (api_reset_bracket)
+- 6.4 ล้างผลรอบถัดไปเมื่อผลถูกแก้ไข (clear_downstream_matches)
+- 7.4 สรุปสถิติภาพรวม Dashboard (api_public_dashboard_stats)
+- 1.1 ขยายเป็น เพิ่ม/แก้ไข/ปิดใช้งานบัญชี (api_user_detail POST/DELETE)
+- 3.2 ขยายเป็น ลงทะเบียน/แก้ไข/ลบทีม (api_team_detail POST/DELETE)
+- DFD กระบวนการ 7 เพิ่มอ่าน D5 ข้อมูลทีม (หน้ารายชื่อผู้เข้าแข่งขัน)
+หมายเหตุ: management command (create_admin, wipe_data) เป็นเครื่องมือ CLI
+ของผู้ดูแลเซิร์ฟเวอร์ ไม่ใช่ฟังก์ชันของเว็บแอป จึงไม่ใส่ใน diagram
+
+อัปเดตรอบ 2
+-----------
+1. ภาพที่ 3.1 (Functional Decomposition) เป็นหน้าแนวนอนเต็มหน้าแล้ว
+2. เพิ่มหัวข้อ 3.1.2 Event-Response List (ตารางที่ 3.1) ตามวิธีในตัวอย่างของอาจารย์
+   -> ตาราง Data Dictionary เลื่อนเป็นตารางที่ 3.2-3.10
+3. แก้การเรียกชื่อ: Context Diagram = DFD Level 0 แล้วค่อยแตกเป็น Level 1
+   (หัวข้อ 3.1.3 กับ 3.1.4 และหัวรูปในภาพ)
+4. ER Diagram ใช้ไฟล์ draw.io ของผู้ใช้เป็นต้นฉบับหลัก:
+   ref/_docx/erdiagram_fixed.drawio (ไฟล์เดียว ไฟล์อื่นลบหมดแล้ว)
+   - แก้แล้ว: ลบแถว school_type ออกจาก SCHOOLS (schema ปัจจุบันไม่มีคอลัมน์นี้)
+   - วิธีเอารูปเข้า Word: เปิดไฟล์ใน draw.io -> File -> Export as -> PNG
+     (Zoom 200%, ติ๊ก Selection Only ออก) แล้วเซฟทับ
+     paper/diagrams/fig_3_4_er.png จากนั้นรัน build_chapter3.py ใหม่
+   - make_diagrams.py จะไม่เขียนทับ fig_3_4_er.png แล้ว
+     (รูป ER แบบ Pillow ต้องสั่ง --er เท่านั้น)
+
+ไฟล์ที่ได้
+----------
+paper/บทที่3_การวิเคราะห์และออกแบบระบบ.docx  <- ไฟล์ Word ส่งอาจารย์ (ฟอนต์ TH SarabunPSK 16pt เหมือนเล่มเดิม)
+paper/diagrams/fig_3_1_decomposition.png     <- Functional Decomposition Diagram (7 ฟังก์ชันหลัก)
+paper/diagrams/fig_3_2_context.png           <- Context Diagram (DFD Level 0, process หมายเลข 0)
+paper/diagrams/fig_3_3_dfd1.png              <- DFD Level 1 (7 process + data store D1-D9)
+paper/diagrams/fig_3_4_er.png                <- ER Diagram (9 ตาราง ตาม sciweek.sql จริง)
+
+ในไฟล์ Word มีอะไรบ้าง
+----------------------
+3.1 การวิเคราะห์ระบบ
+    3.1.1 ภาพที่ 3.1 Functional Decomposition Diagram
+    3.1.2 ภาพที่ 3.2 Context Diagram
+    3.1.3 ภาพที่ 3.3 DFD Level 1
+3.2 การออกแบบฐานข้อมูล
+    3.2.1 ภาพที่ 3.4 ER Diagram
+    3.2.2 Data Dictionary = ตารางที่ 3.1 ถึง 3.9 (users, schools, tournaments,
+          divisions, rounds, teams, team_members, matches, match_games)
+ทุกหัวข้อมีย่อหน้าอธิบายภาษาไทยนำก่อนรูป/ตาราง
+
+วิธีแก้ไข / สร้างใหม่
+---------------------
+แก้รูป:    แก้ไฟล์ paper/make_diagrams.py แล้วรัน
+           .\env\Scripts\python.exe paper\make_diagrams.py
+แก้เนื้อหา: แก้ไฟล์ paper/build_chapter3.py แล้วรัน
+           .\env\Scripts\python.exe paper\build_chapter3.py
+           (ต้องปิดไฟล์ Word ก่อนรัน ไม่งั้นเขียนทับไม่ได้)
+
+หมายเหตุ
+--------
+- สายงาน DFD ยึดตามระบบจริง: Admin เตรียมการแข่งขัน (process 1-4),
+  Field Staff สแกนผลด้วย OCR (process 5), Monitor ยืนยันผล (process 6),
+  Guest ดูผลสาธารณะ (process 7)
+- Data store D1-D9 ตรงกับตารางฐานข้อมูล 9 ตารางแบบหนึ่งต่อหนึ่ง
+- รูปเป็น PNG ขาวดำสไตล์เดียวกับตัวอย่างของอาจารย์ (ref/context_diagram_and_dfd)
+  ถ้าอาจารย์ต้องการไฟล์ที่แก้ไขได้ (เช่น draw.io / Visio) ต้องวาดใหม่ แจ้งได้เลย

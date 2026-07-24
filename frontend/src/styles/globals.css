@@ -1,0 +1,160 @@
+@import 'tailwindcss';
+@import 'tw-animate-css';
+
+/* Thai + Latin fonts, bundled locally so the app works offline at the venue */
+@import '@fontsource/kanit/400.css';
+@import '@fontsource/kanit/500.css';
+@import '@fontsource/kanit/600.css';
+@import '@fontsource/kanit/700.css';
+@import '@fontsource/noto-sans-thai/400.css';
+@import '@fontsource/noto-sans-thai/500.css';
+@import '@fontsource/noto-sans-thai/600.css';
+@import '@fontsource/noto-sans-thai/700.css';
+
+html,
+body,
+#root {
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+}
+
+@custom-variant dark (&:is(.dark *));
+
+/*
+ * Toornament-style light theme, tuned for projectors.
+ *
+ * Projector rules baked into these values:
+ * - Light canvas + white cards: projectors wash out dark themes badly.
+ * - Text is near-black (#181c23), never mid-gray, so it survives low contrast.
+ * - The toornament orange is darkened to #d94f00 so small orange text and
+ *   white-on-orange fills stay readable when the projector dims colors.
+ * - Borders are a step darker than usual so hairlines don't disappear.
+ */
+:root {
+  --background: #edeff2;
+  --foreground: #181c23;
+  --card: #ffffff;
+  --card-foreground: #181c23;
+  --popover: #ffffff;
+  --popover-foreground: #181c23;
+  /* Brand accent is navy, one value, used everywhere (nav, links, focus rings,
+     bracket winner state). Orange is reserved for --attention (needs-verify,
+     live) so it always means "look here", never "this is the app". */
+  --primary: oklch(0.42 0.18 255);
+  --primary-foreground: #ffffff;
+  --attention: #d94f00;
+  --attention-foreground: #ffffff;
+  --secondary: #eef1f4;
+  --secondary-foreground: #333c47;
+  --muted: #f3f5f7;
+  --muted-foreground: #58626e;
+  --accent: #e9edf1;
+  --accent-foreground: #181c23;
+  /* success/win and destructive/lose are the same color under two names:
+     use --success/--destructive for generic UI actions, --win/--lose when
+     the meaning is specifically a match outcome. */
+  --success: oklch(0.48 0.18 142);
+  --success-foreground: #ffffff;
+  --destructive: oklch(0.55 0.2 27);
+  --destructive-foreground: #ffffff;
+  --border: #d6dade;
+  --input: #cfd5da;
+  --ring: var(--primary);
+  --chart-1: var(--attention);
+  --chart-2: var(--success);
+  --chart-3: #24507e;
+  --chart-4: var(--destructive);
+  --chart-5: #58626e;
+  --radius: 0.25rem;
+  /* Dark navy toornament header band */
+  --header: #242b38;
+  --header-foreground: #ffffff;
+  --header-muted: #9aa4b5;
+  --sidebar: #ffffff;
+  --sidebar-foreground: #181c23;
+  --sidebar-primary: var(--primary);
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #eef1f4;
+  --sidebar-accent-foreground: #181c23;
+  --sidebar-border: #d6dade;
+  --sidebar-ring: var(--primary);
+  --brand: var(--primary);
+  --brand-foreground: var(--primary-foreground);
+  --win: var(--success);
+  --lose: var(--destructive);
+  --surface: oklch(0.97 0.005 255);
+  --surface-foreground: oklch(0.25 0.08 255);
+}
+
+@theme inline {
+  --font-sans: 'Noto Sans Thai', 'Segoe UI', 'Leelawadee UI', sans-serif;
+  --font-display: 'Kanit', 'Noto Sans Thai', 'Segoe UI', sans-serif;
+  --font-mono: 'Consolas', 'Courier New', monospace;
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-attention: var(--attention);
+  --color-attention-foreground: var(--attention-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-header: var(--header);
+  --color-header-foreground: var(--header-foreground);
+  --color-header-muted: var(--header-muted);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --radius-sm: calc(var(--radius) - 2px);
+  --radius-md: var(--radius);
+  --radius-lg: calc(var(--radius) + 2px);
+  --radius-xl: calc(var(--radius) + 6px);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-brand: var(--brand);
+  --color-brand-foreground: var(--brand-foreground);
+  --color-win: var(--win);
+  --color-lose: var(--lose);
+  --color-surface: var(--surface);
+  --color-surface-foreground: var(--surface-foreground);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background font-sans text-foreground;
+  }
+  h1,
+  h2,
+  h3,
+  h4 {
+    @apply font-display;
+  }
+}
