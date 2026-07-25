@@ -14,3 +14,9 @@ frontend/vite.config.d.ts
 
 /frontend/package-lock.json
 /cert
+
+# real DB dumps with data (password hashes, live records) -- schema-only
+# dumps like sciweek.sql / prepdata/sciweek.sql are fine to track
+sciweek-backup.sql
+*-backup.sql
+*.sql.bak
