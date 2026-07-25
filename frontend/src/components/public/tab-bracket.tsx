@@ -83,6 +83,7 @@ function adaptStageToBracket(stage: Stage): { matches: Match[]; teams: Team[] } 
         id: m.id,
         round: roundIdx + 1,
         position: m.matchNumber - 1,
+        nextMatchId: m.nextMatchId ?? null,
         team1,
         team2,
         bestOf: m.bestOf,

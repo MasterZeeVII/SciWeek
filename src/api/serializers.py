@@ -12,10 +12,11 @@ Conventions the frontend relies on:
 
 from collections import Counter
 
+from django.db.models import Count, Max
 from django.shortcuts import get_object_or_404
 
 from common.auth import get_current_user
-from common.models import Division, Match, MatchGame, School, Tournament
+from common.models import Division, Match, MatchGame, School, Team, Tournament
 from service.bracket import default_round_name, division_has_bracket, is_third_place_match
 from service.results import get_match_loser, get_match_participants, get_match_winner
 
@@ -122,6 +123,11 @@ def _serialize_match(match, seed_by_team):
         "id": str(match.id),
         "round": match.round.round_number,
         "position": match.match_number - 1,
+        # Real tree topology: the match this match's winner advances into.
+        # The bracket canvas draws connectors from this, NOT from position
+        # arithmetic — historical seasons imported from Toornament have byes,
+        # so a round can hold more matches than half the previous round.
+        "nextMatchId": str(match.next_match_id) if match.next_match_id else None,
         "status": match.status,
         "bestOf": match.round.best_of,
         "winnerTeamId": str(winner.id) if winner else None,
@@ -267,6 +273,9 @@ def _public_match(match):
     return {
         "id": str(match.id),
         "matchNumber": match.match_number,
+        # Same tree-topology pointer the admin payload carries — the public
+        # bracket tab feeds the same shared canvas.
+        "nextMatchId": str(match.next_match_id) if match.next_match_id else None,
         "status": match.status,
         "bestOf": match.round.best_of,
         "team1": team_name(team1) if team1 else None,
@@ -420,6 +429,20 @@ def dashboard_stats_payload():
     }
 
 
+def _players_per_team(tournament):
+    """Largest roster size actually on file for this tournament, or None.
+
+    Historical seasons backfilled from Toornament have no team_members rows
+    at all (no player names in that source data) -- reporting "5" for those
+    would be fabricated, so this returns None rather than guessing."""
+    return (
+        Team.objects.filter(division__tournament=tournament)
+        .annotate(member_count=Count("members"))
+        .aggregate(Max("member_count"))["member_count__max"]
+        or None
+    )
+
+
 def public_tournament_payload(tournament):
     """Full public detail: divisions as bracket stages plus participants."""
     divisions = list(tournament.divisions.order_by("level"))
@@ -445,7 +468,7 @@ def public_tournament_payload(tournament):
         "year": tournament.year,
         "status": "Live" if tournament.is_active else "Past",
         "teamCount": len(participants),
-        "playersPerTeam": 5,
+        "playersPerTeam": _players_per_team(tournament),
         "stages": stages,
         "participants": participants,
         "standings": [_public_standing(division) for division in divisions],

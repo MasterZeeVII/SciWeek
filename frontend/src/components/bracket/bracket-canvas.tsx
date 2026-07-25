@@ -41,9 +41,19 @@ function findTeamPath(matches: Match[], teamId: string): Set<string> {
   return path
 }
 
+// Card geometry — shared by the absolutely-positioned match cards and the
+// SVG connector layer so both agree on where a match actually sits.
+const HEADER_HEIGHT = 28
+const TEAM_ROW_HEIGHT = 32
+const MATCH_WIDTH = 192
+const MATCH_HEIGHT = HEADER_HEIGHT + TEAM_ROW_HEIGHT * 2
+const THIRD_PLACE_OFFSET = 180
+
+type RoundConfig = Record<number, { x: number; gapY: number; startY: number }>
+
 // Generate round config based on bracket size - tighter spacing
-function generateRoundConfig(totalRounds: number) {
-  const config: Record<number, { x: number; gapY: number; startY: number }> = {}
+function generateRoundConfig(totalRounds: number): RoundConfig {
+  const config: RoundConfig = {}
 
   for (let round = 1; round <= totalRounds; round++) {
     const baseGap = 110 // Vertical gap between matches
@@ -62,6 +72,22 @@ function generateRoundConfig(totalRounds: number) {
 // A second match in the final round is the third-place decider
 export function isThirdPlaceMatch(match: Match, totalRounds: number): boolean {
   return match.round === totalRounds && match.position > 0
+}
+
+// Single source of truth for a match card's top edge. The third-place card
+// sits just below the final instead of a full bracket gap away.
+function matchTop(match: Match, roundConfig: RoundConfig, totalRounds: number): number | null {
+  const config = roundConfig[match.round]
+  if (!config) return null
+  return isThirdPlaceMatch(match, totalRounds)
+    ? config.startY + THIRD_PLACE_OFFSET
+    : config.startY + match.position * config.gapY
+}
+
+// The final is match 1 of the last round; skip the third-place decider that
+// shares that round.
+function findFinalMatch(matches: Match[], totalRounds: number): Match | undefined {
+  return matches.find(m => m.round === totalRounds && !isThirdPlaceMatch(m, totalRounds))
 }
 
 export interface BracketLabels {
@@ -222,75 +248,93 @@ function BracketLines({
 }) {
   const roundConfig = generateRoundConfig(totalRounds)
 
-  const headerHeight = 28
-  const teamRowHeight = 32
-  const matchWidth = 192
-
   function getWinnerYOffset(match: Match): number {
-    const winner = getWinner(match)
-    if (!winner) return headerHeight + teamRowHeight
-    if (winner.id === match.team1?.id) {
-      return headerHeight + teamRowHeight / 2
-    } else {
-      return headerHeight + teamRowHeight + teamRowHeight / 2
-    }
+    return getTeamSlotY(match, getWinner(match))
   }
 
   function getTeamSlotY(match: Match, team: Team | null): number {
-    if (!team) return headerHeight + teamRowHeight
+    if (!team) return HEADER_HEIGHT + TEAM_ROW_HEIGHT
     if (team.id === match.team1?.id) {
-      return headerHeight + teamRowHeight / 2
+      return HEADER_HEIGHT + TEAM_ROW_HEIGHT / 2
     } else {
-      return headerHeight + teamRowHeight + teamRowHeight / 2
+      return HEADER_HEIGHT + TEAM_ROW_HEIGHT + TEAM_ROW_HEIGHT / 2
     }
   }
 
   const paths: { d: string; highlighted: boolean }[] = []
   const nodes: { cx: number; cy: number; highlighted: boolean }[] = []
 
-  // Generate connections for each round transition
-  for (let round = 1; round < totalRounds; round++) {
-    const currentRoundMatches = matches.filter(m => m.round === round)
-    const nextRoundMatches = matches.filter(m => m.round === round + 1)
+  // Connectors follow the real match graph (match -> the match its winner
+  // advances into), never `position` arithmetic. A clean power-of-two
+  // bracket happens to make match n feed match ceil(n/2), but brackets with
+  // byes do not: 2021 Junior had 9 teams, so round 1 held a single match
+  // whose winner joined round 2 match 4 while the other seven teams entered
+  // round 2 with no round-1 predecessor at all. Bye-advanced matches simply
+  // get no incoming line, which is the structurally correct picture.
+  const matchById = new Map(matches.map(match => [match.id, match]))
 
-    for (let i = 0; i < currentRoundMatches.length; i++) {
-      const currentMatch = currentRoundMatches[i]
-      const nextMatchIndex = Math.floor(i / 2)
-      const nextMatch = nextRoundMatches[nextMatchIndex]
+  const edges: { from: Match; to: Match }[] = []
+  for (const match of matches) {
+    if (!match.nextMatchId) continue
+    const next = matchById.get(match.nextMatchId)
+    // Guard against a dangling / backwards pointer rather than drawing a
+    // line that loops back across the canvas.
+    if (!next || next.round <= match.round) continue
+    edges.push({ from: match, to: next })
+  }
 
-      if (!currentMatch || !nextMatch) continue
-
-      const winner = getWinner(currentMatch)
-      const isHighlighted = highlightedPath.has(currentMatch.id) && highlightedPath.has(nextMatch.id)
-
-      const config = roundConfig[round]
-      const nextConfig = roundConfig[round + 1]
-
-      const x1 = config.x + matchWidth
-      const y1 = config.startY + currentMatch.position * config.gapY + getWinnerYOffset(currentMatch)
-
-      const x2 = nextConfig.x
-      const y2 = nextConfig.startY + nextMatchIndex * nextConfig.gapY + getTeamSlotY(nextMatch, winner)
-
-      const midX = x1 + 40
-
-      paths.push({
-        d: `M ${x1} ${y1} H ${midX} V ${y2} H ${x2}`,
-        highlighted: isHighlighted,
+  // Back-compat: a payload from a backend that predates nextMatchId carries
+  // no topology at all. Fall back to the old halving assumption so such a
+  // bracket still renders lines (it can only be a power-of-two bracket —
+  // that is all generate_bracket() ever produced).
+  if (edges.length === 0 && totalRounds > 1) {
+    for (let round = 1; round < totalRounds; round++) {
+      const current = matches.filter(m => m.round === round)
+      const next = matches.filter(m => m.round === round + 1)
+      current.forEach((match, i) => {
+        const target = next[Math.floor(i / 2)]
+        if (target) edges.push({ from: match, to: target })
       })
-
-      nodes.push({ cx: midX, cy: y1, highlighted: isHighlighted })
     }
   }
 
+  for (const { from, to } of edges) {
+    const config = roundConfig[from.round]
+    const nextConfig = roundConfig[to.round]
+    const fromTop = matchTop(from, roundConfig, totalRounds)
+    const toTop = matchTop(to, roundConfig, totalRounds)
+    if (!config || !nextConfig || fromTop === null || toTop === null) continue
+
+    const winner = getWinner(from)
+    const isHighlighted = highlightedPath.has(from.id) && highlightedPath.has(to.id)
+
+    const x1 = config.x + MATCH_WIDTH
+    const y1 = fromTop + getWinnerYOffset(from)
+
+    const x2 = nextConfig.x
+    const y2 = toTop + getTeamSlotY(to, winner)
+
+    // 8px shy of the next card; identical to the old x1 + 40 for adjacent
+    // rounds, still sane if a pointer ever skips a round.
+    const midX = x2 - 8
+
+    paths.push({
+      d: `M ${x1} ${y1} H ${midX} V ${y2} H ${x2}`,
+      highlighted: isHighlighted,
+    })
+
+    nodes.push({ cx: midX, cy: y1, highlighted: isHighlighted })
+  }
+
   // Final winner node
-  const finalMatch = matches.find(m => m.round === totalRounds)
+  const finalMatch = findFinalMatch(matches, totalRounds)
   if (finalMatch) {
     const champion = getWinner(finalMatch)
-    if (champion) {
-      const config = roundConfig[totalRounds]
-      const x1 = config.x + matchWidth
-      const y1 = config.startY + getWinnerYOffset(finalMatch)
+    const config = roundConfig[totalRounds]
+    const finalTop = matchTop(finalMatch, roundConfig, totalRounds)
+    if (champion && config && finalTop !== null) {
+      const x1 = config.x + MATCH_WIDTH
+      const y1 = finalTop + getWinnerYOffset(finalMatch)
       nodes.push({
         cx: x1 + 20,
         cy: y1,
@@ -418,10 +462,18 @@ export function BracketCanvas({
     return 60 + totalRounds * 280 + 150
   }, [totalRounds])
 
+  // Derived from where the cards actually land, not from the round-1 match
+  // count: a bye bracket's widest round is not round 1, and an undersized
+  // canvas clips the SVG connector layer (svg overflow is hidden) so lines
+  // below the fold vanish.
   const canvasHeight = useMemo(() => {
-    const firstRoundMatches = matches.filter(m => m.round === 1).length
-    return Math.max(400, 60 + firstRoundMatches * 100 + 100)
-  }, [matches])
+    let bottom = 0
+    for (const match of matches) {
+      const top = matchTop(match, roundConfig, totalRounds)
+      if (top !== null) bottom = Math.max(bottom, top + MATCH_HEIGHT)
+    }
+    return Math.max(400, bottom + 100)
+  }, [matches, roundConfig, totalRounds])
 
   const handleTeamSelect = (teamId: string) => {
     if (selectedTeam === teamId) {
@@ -690,13 +742,8 @@ export function BracketCanvas({
           {/* Match cards */}
           {matches.map((match) => {
             const config = roundConfig[match.round]
-            if (!config) return null
-
-            // Third-place card sits just below the final instead of a full
-            // bracket gap away
-            const top = isThirdPlaceMatch(match, totalRounds)
-              ? config.startY + 180
-              : config.startY + match.position * config.gapY
+            const top = matchTop(match, roundConfig, totalRounds)
+            if (!config || top === null) return null
 
             return (
               <div
@@ -722,18 +769,19 @@ export function BracketCanvas({
 
           {/* Champion indicator */}
           {(() => {
-            const finalMatch = matches.find(m => m.round === totalRounds)
+            const finalMatch = findFinalMatch(matches, totalRounds)
             const champion = finalMatch ? getWinner(finalMatch) : null
-            if (!champion) return null
+            if (!finalMatch || !champion) return null
             const config = roundConfig[totalRounds]
-            if (!config) return null
+            const finalTop = matchTop(finalMatch, roundConfig, totalRounds)
+            if (!config || finalTop === null) return null
 
             return (
               <div
                 className="absolute flex items-center gap-2"
                 style={{
                   left: config.x + 200,
-                  top: config.startY + 30,
+                  top: finalTop + 30,
                 }}
               >
                 <div className="h-0.5 w-8 bg-primary" />

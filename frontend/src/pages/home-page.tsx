@@ -33,8 +33,6 @@ export function HomePage() {
     return () => { cancelled = true }
   }, [])
 
-  const pastCount = tournaments?.filter((t) => t.status === "Past").length ?? 0
-
   return (
     <main className="min-h-screen bg-background font-sans">
       <SiteTopbar />
@@ -65,26 +63,6 @@ export function HomePage() {
       </div>
 
       <div className="max-w-5xl mx-auto px-4 md:px-8 py-10">
-        {/* Stats strip */}
-        <div className="grid grid-cols-3 gap-4 mb-10">
-          {[
-            { label: "ซีซั่นที่ผ่านมา", value: pastCount },
-            { label: "ทีมต่อซีซั่น", value: "32" },
-            { label: "ผู้เล่นต่อทีม", value: "5" },
-          ].map((stat, i) => (
-            <motion.div
-              key={stat.label}
-              initial={{ opacity: 0, y: 16 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.4, delay: 0.15 + i * 0.08 }}
-              className="bg-card border border-border rounded-xl px-5 py-4 text-center"
-            >
-              <p className="text-3xl font-extrabold text-brand">{stat.value}</p>
-              <p className="text-xs text-muted-foreground mt-0.5">{stat.label}</p>
-            </motion.div>
-          ))}
-        </div>
-
         {/* Section title */}
         <motion.div
           initial={{ opacity: 0 }}
@@ -160,7 +138,7 @@ export function HomePage() {
                       </div>
                       <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
                         <Users className="w-3.5 h-3.5 flex-shrink-0" />
-                        <span>{t.teamCount} ทีม · 5 คน/ทีม</span>
+                        <span>{t.teamCount} ทีม</span>
                       </div>
                     </div>
 

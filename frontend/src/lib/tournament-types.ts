@@ -32,7 +32,13 @@ export interface Game {
 export interface Match {
   id: string
   round: number
+  /** Vertical slot within the round (match_number - 1). Layout only —
+   *  never use it to infer which match feeds which, that's nextMatchId. */
   position: number
+  /** Id of the match this match's winner advances into (null for the final
+   *  and for the third-place decider). The real bracket topology — brackets
+   *  with byes are not a clean halving tree, so connectors must follow this. */
+  nextMatchId?: string | null
   team1: Team | null
   team2: Team | null
   games: Game[]

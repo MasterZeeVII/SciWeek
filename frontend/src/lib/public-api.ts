@@ -14,6 +14,8 @@ export interface PublicGame {
 export interface PublicMatch {
   id: string
   matchNumber: number
+  /** Match this winner advances into — null for the final / 3rd-place game. */
+  nextMatchId: string | null
   status: "PENDING" | "IN_PROGRESS" | "COMPLETED"
   bestOf: number
   team1: string | null
@@ -70,7 +72,7 @@ export interface TournamentDetail {
   year: number
   status: "Live" | "Past"
   teamCount: number
-  playersPerTeam: number
+  playersPerTeam: number | null
   stages: Stage[]
   participants: Participant[]
   standings: Standing[]

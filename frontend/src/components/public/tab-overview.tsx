@@ -72,7 +72,9 @@ export function TabOverview({ tournament, onTabChange }: Props) {
                 <div>
                   <p className="text-xs text-muted-foreground">ขนาด</p>
                   <p className="font-semibold text-sm text-foreground">{tournament.teamCount} ทีม</p>
-                  <p className="text-xs text-muted-foreground">({tournament.playersPerTeam} คน/ทีม)</p>
+                  {tournament.playersPerTeam != null && (
+                    <p className="text-xs text-muted-foreground">({tournament.playersPerTeam} คน/ทีม)</p>
+                  )}
                 </div>
               </div>
             </div>
