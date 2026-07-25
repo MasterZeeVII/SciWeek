@@ -8,14 +8,12 @@ import {
   CheckCircle2,
   ChevronRight,
   Gamepad2,
-  TrendingUp,
 } from "lucide-react"
 import { LEVEL_LABEL, type TournamentDetail } from "@/lib/public-api"
 import { SITE } from "@/lib/site-config"
 import { CardHeader } from "@/components/ui/card"
 import { StatusPill } from "@/components/ui/status-pill"
 import type { TabId } from "./nav-tabs"
-import { SchoolStats } from "./school-stats"
 
 type Props = {
   tournament: TournamentDetail
@@ -179,20 +177,6 @@ export function TabOverview({ tournament, onTabChange }: Props) {
           </motion.section>
         </div>
       </div>
-
-      {/* School analytics — full width. Held back while the tournament is
-          still Live so a losing school's aggregate record isn't broadcast
-          mid-event; it appears once the season is decided. */}
-      {tournament.status === "Past" ? (
-        <SchoolStats tournament={tournament} />
-      ) : (
-        <div className="bg-card rounded-lg border border-border overflow-hidden">
-          <CardHeader icon={<TrendingUp className="w-4 h-4 text-brand" />} title="สถิติโรงเรียน" />
-          <p className="p-5 text-sm text-muted-foreground text-center">
-            สถิติโรงเรียนจะแสดงหลังจบการแข่งขัน
-          </p>
-        </div>
-      )}
     </div>
   )
 }
