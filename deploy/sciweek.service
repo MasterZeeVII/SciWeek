@@ -1,0 +1,20 @@
+[Unit]
+Description=SCIWEEK Django API (gunicorn)
+After=network.target mysql.service
+
+[Service]
+Type=notify
+User=www-data
+Group=www-data
+WorkingDirectory=/opt/sciweek
+EnvironmentFile=/opt/sciweek/.env
+ExecStart=/opt/sciweek/env/bin/gunicorn \
+    --workers 3 \
+    --bind 127.0.0.1:8001 \
+    --chdir /opt/sciweek/src \
+    config.wsgi:application
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
