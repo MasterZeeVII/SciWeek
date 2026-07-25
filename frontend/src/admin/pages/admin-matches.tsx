@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react"
 import { Link } from "react-router-dom"
 import { motion } from "motion/react"
-import { Camera, CheckCircle2, Clock3, Network, Swords, Trophy, X } from "lucide-react"
+import { Ban, Camera, CheckCircle2, Clock3, Network, Swords, Trophy, X } from "lucide-react"
 
 import { STATUS_LABEL, evidenceUrl, needsVerify, statusClass } from "@/lib/game-status"
 import { getScanInfo } from "@/lib/scan-info"
@@ -22,6 +22,8 @@ type SetResultFn = (
   options?: { useScanScores?: boolean },
 ) => Promise<void>
 
+type RejectFn = (matchId: string, gameIndex: number, reason: string) => Promise<void>
+
 function seriesScore(match: Match): [number, number] {
   let a = 0
   let b = 0
@@ -34,7 +36,7 @@ function seriesScore(match: Match): [number, number] {
 }
 
 export function AdminMatches() {
-  const { user, tournament, error, updateMatchResult, getRoundConfigs } = useTournament()
+  const { user, tournament, error, updateMatchResult, rejectGameScan, getRoundConfigs } = useTournament()
   const [openMatchId, setOpenMatchId] = useState<string | null>(null)
   const canScore = hasRole(user, "MONITOR")
 
@@ -147,6 +149,7 @@ export function AdminMatches() {
                     onToggle={() => setOpenMatchId(openMatchId === match.id ? null : match.id)}
                     canScore={canScore}
                     onSetResult={updateMatchResult}
+                    onReject={rejectGameScan}
                   />
                 ))}
               </div>
@@ -164,12 +167,14 @@ function MatchRow({
   onToggle,
   canScore,
   onSetResult,
+  onReject,
 }: {
   match: Match
   open: boolean
   onToggle: () => void
   canScore: boolean
   onSetResult: SetResultFn
+  onReject: RejectFn
 }) {
   const [wins1, wins2] = seriesScore(match)
   const done = match.status === "COMPLETED"
@@ -226,6 +231,7 @@ function MatchRow({
               gameIndex={index}
               canScore={canScore}
               onSetResult={onSetResult}
+              onReject={onReject}
             />
           ))}
         </div>
@@ -240,12 +246,14 @@ function GameRow({
   gameIndex,
   canScore,
   onSetResult,
+  onReject,
 }: {
   match: Match
   game: Game
   gameIndex: number
   canScore: boolean
   onSetResult: SetResultFn
+  onReject: RejectFn
 }) {
   const [score1, setScore1] = useState(game.team1Score?.toString() ?? "")
   const [score2, setScore2] = useState(game.team2Score?.toString() ?? "")
@@ -295,6 +303,18 @@ function GameRow({
     }
   }
 
+  const handleReject = async () => {
+    if (busy) return
+    const reason = window.prompt("เหตุผลที่ปฏิเสธผลสแกนนี้:")
+    if (!reason || !reason.trim()) return
+    setBusy(true)
+    try {
+      await onReject(match.id, gameIndex, reason.trim())
+    } finally {
+      setBusy(false)
+    }
+  }
+
   // Visual state at a glance: untouched games fade back, a scan waiting
   // for the monitor glows orange, verified games get a green edge.
   const attention = needsVerify(game)
@@ -337,6 +357,25 @@ function GameRow({
         >
           {manualOverride ? "ใช้คะแนนที่สแกน" : "แก้ไขคะแนนเอง"}
         </button>
+      )}
+
+      {/* Reject — for a scan that's plainly wrong (bad photo, wrong ROI)
+          rather than just needing a manual number correction */}
+      {canScore && (status === "OCR_DONE" || status === "UPLOADED") && (
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => void handleReject()}
+          className="flex items-center gap-1 text-xs font-medium text-lose hover:underline disabled:opacity-50"
+          title="ปฏิเสธผลสแกนนี้"
+        >
+          <Ban className="w-3 h-3" />
+          ปฏิเสธ
+        </button>
+      )}
+
+      {status === "REJECTED" && game.rejectReason && (
+        <span className="text-xs text-lose italic">เหตุผล: {game.rejectReason}</span>
       )}
 
       {/* Kill score inputs — hidden while a scan waits, the scan decides */}

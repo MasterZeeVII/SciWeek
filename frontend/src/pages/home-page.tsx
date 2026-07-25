@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react"
 import { Link } from "react-router-dom"
 import { motion } from "motion/react"
-import { Calendar, Users, MapPin, Trophy, ChevronRight, Gamepad2, LogIn } from "lucide-react"
+import { Calendar, Users, MapPin, Trophy, ChevronRight, Gamepad2 } from "lucide-react"
 import { fetchTournaments, LEVEL_LABEL, type TournamentSummary } from "@/lib/public-api"
 import { SITE } from "@/lib/site-config"
 import { StatusPill } from "@/components/ui/status-pill"
+import { SiteTopbar } from "@/components/public/site-topbar"
 
 const statusConfig = {
   Past: { label: "เสร็จสิ้น", variant: "neutral" as const },
@@ -36,8 +37,10 @@ export function HomePage() {
 
   return (
     <main className="min-h-screen bg-background font-sans">
-      {/* Site header */}
-      <header className="bg-card border-b border-border">
+      <SiteTopbar />
+
+      {/* Hero */}
+      <div className="bg-card border-b border-border">
         <motion.div
           initial={{ opacity: 0, x: -24 }}
           animate={{ opacity: 1, x: 0 }}
@@ -58,15 +61,8 @@ export function HomePage() {
               {SITE.university}
             </p>
           </div>
-          <Link
-            to="/admin"
-            className="flex items-center gap-1.5 flex-shrink-0 text-sm font-semibold text-muted-foreground hover:text-brand border border-border hover:border-brand/40 px-4 py-2 rounded-lg transition-colors"
-          >
-            <LogIn className="w-4 h-4" />
-            เข้าสู่ระบบ
-          </Link>
         </motion.div>
-      </header>
+      </div>
 
       <div className="max-w-5xl mx-auto px-4 md:px-8 py-10">
         {/* Stats strip */}

@@ -18,7 +18,6 @@ from common.auth import get_current_user
 from common.models import Division, Match, MatchGame, School, Tournament
 from service.bracket import default_round_name, division_has_bracket, is_third_place_match
 from service.results import get_match_loser, get_match_participants, get_match_winner
-from service.tournament import ensure_default_divisions
 
 
 def user_payload(user):
@@ -204,26 +203,36 @@ def _division_payload(division):
     }
 
 
+def _last_round(division):
+    # division.rounds.all() (not .order_by().first()) so this uses the
+    # prefetch cache when the caller already loaded
+    # divisions__rounds__matches__... (dashboard_stats_payload's hall-of-fame
+    # loop does) instead of issuing a fresh query per division every time.
+    rounds = list(division.rounds.all())
+    if not rounds:
+        return None
+    return max(rounds, key=lambda round_: round_.round_number)
+
+
 def _final_match(division):
-    last_round = division.rounds.order_by("-round_number").first()
+    last_round = _last_round(division)
     if not last_round:
         return None
-    return (
-        last_round.matches.filter(match_number=1)
-        .select_related("round__division")
-        .first()
-    )
+    for match in last_round.matches.all():
+        if match.match_number == 1:
+            return match
+    return None
 
 
 def _third_place_match(division):
-    last_round = division.rounds.order_by("-round_number").first()
+    last_round = _last_round(division)
     if not last_round:
         return None
-    match = (
-        last_round.matches.filter(match_number=2)
-        .select_related("round__division")
-        .first()
-    )
+    match = None
+    for candidate in last_round.matches.all():
+        if candidate.match_number == 2:
+            match = candidate
+            break
     if match and not match.previous_matches.exists():
         return match
     return None
@@ -315,7 +324,9 @@ def _public_stage(division, stage_id):
 def _public_standing(division):
     final = _final_match(division)
     champion = get_match_winner(final) if final else None
-    runner_up = get_match_loser(final) if final else None
+    # Thread champion through as the precomputed winner so get_match_loser
+    # doesn't call get_match_winner(final) a second time.
+    runner_up = get_match_loser(final, champion) if final else None
     third_match = _third_place_match(division)
     third = get_match_winner(third_match) if third_match else None
     return {
@@ -453,7 +464,11 @@ def state_payload(request, division_id=None):
     if not tournament:
         return payload
 
-    ensure_default_divisions(tournament)
+    # No get_or_create here — this is a GET and must stay a pure read.
+    # Default divisions are created at the point a tournament becomes
+    # active (service.tournament.upsert_tournament / the activate endpoint
+    # both already call ensure_default_divisions()), not lazily on every
+    # poll of every connected device.
     divisions = list(tournament.divisions.order_by("level"))
     selected_division = None
     if division_id:

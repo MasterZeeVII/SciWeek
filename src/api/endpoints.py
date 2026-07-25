@@ -8,17 +8,18 @@ the SPA authenticates purely by session cookie.
 import json
 from datetime import date
 
+from django.core.cache import cache
 from django.core.exceptions import ValidationError
 from django.db.models import Max
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404
 from django.views.decorators.http import require_http_methods
 
-from common.auth import require_role
+from common.auth import require_role, require_user
 from common.models import Division, MatchGame, School, SystemUser, Team, TeamMember, Tournament
 from ocr import scan_score_image
 from service.bracket import division_has_bracket, generate_bracket, reset_division_bracket
-from service.results import save_scan_result, set_game_result
+from service.results import reject_scan, save_scan_result, set_game_result
 from service.tournament import activate_tournament, ensure_default_divisions, upsert_tournament
 
 from .serializers import (
@@ -64,19 +65,41 @@ def api_handler(*methods):
     return decorator
 
 
+LOGIN_MAX_ATTEMPTS = 5
+LOGIN_LOCKOUT_SECONDS = 300  # 5 minutes
+
+
+def _login_attempts_key(username):
+    return f"login_attempts:{(username or '').strip().lower()}"
+
+
 @api_handler("POST")
 def api_login(request):
     data = _json_body(request)
     username = data.get("username", "")
     password = data.get("password", "")
+
+    # Simple per-username lockout against brute force / enumeration: no new
+    # DB table (no migrations in this repo) — just Django's cache, which
+    # defaults to per-process locmem here (see settings.py CACHES). That's
+    # enough to blunt a scripted attack against a single admin process; it
+    # resets if the process restarts and doesn't share state across workers.
+    attempts_key = _login_attempts_key(username)
+    attempts = cache.get(attempts_key, 0)
+    if attempts >= LOGIN_MAX_ATTEMPTS:
+        return _error("Too many failed login attempts. Try again later.", status=429)
+
     try:
         user = SystemUser.objects.get(username=username, is_active=True)
     except SystemUser.DoesNotExist:
+        cache.set(attempts_key, attempts + 1, LOGIN_LOCKOUT_SECONDS)
         return _error("Invalid username or password.", status=401)
 
     if not user.check_password(password):
+        cache.set(attempts_key, attempts + 1, LOGIN_LOCKOUT_SECONDS)
         return _error("Invalid username or password.", status=401)
 
+    cache.delete(attempts_key)
     request.session.cycle_key()
     request.session["user_id"] = user.id
     return JsonResponse({"user": user_payload(user)})
@@ -90,6 +113,11 @@ def api_logout(request):
 
 @api_handler("GET")
 def api_state(request):
+    # Full admin payload (rawOcrJson, imagePath, uploaded/verified-by
+    # usernames) — only the logged-in admin control panel calls this
+    # (frontend/src/lib/tournament-context.tsx via lib/api.ts); the public
+    # site uses the separate, sanitized /api/public/... endpoints instead.
+    require_user(request)
     return JsonResponse(state_payload(request, request.GET.get("division_id")))
 
 
@@ -224,10 +252,30 @@ def api_reset_bracket(request, division_id):
     return JsonResponse(state_payload(request, division.id))
 
 
+def _require_active_tournament(game):
+    """IDOR guard: reject mutating a game whose season isn't the currently
+    active tournament. Nothing else in the codebase already enforces an
+    "acting on the active tournament" invariant (checked — grep for
+    is_active turns up only activation/status-display code), so this is a
+    new, deliberately simple rule: editing a past season is only possible
+    by reactivating it first (POST /api/tournaments/<id>/activate/), which
+    flips is_active back on. Applies to every role, including ADMIN —
+    reactivation is exactly the intended door for editing historical data,
+    so there's no role that should be able to skip it."""
+    tournament = game.match.round.division.tournament
+    if not tournament.is_active:
+        raise ValidationError(
+            "This match belongs to a season that isn't active. Reactivate that season first."
+        )
+
+
 @api_handler("POST")
 def api_game_result(request, game_id):
     user = require_role(request, SystemUser.Role.ADMIN, SystemUser.Role.MONITOR)
-    game = get_object_or_404(MatchGame.objects.select_related("match__round"), id=game_id)
+    game = get_object_or_404(
+        MatchGame.objects.select_related("match__round__division__tournament"), id=game_id
+    )
+    _require_active_tournament(game)
     data = _json_body(request)
     winner = data.get("winner")
     if winner == "team1":
@@ -247,6 +295,18 @@ def api_game_result(request, game_id):
         data.get("team2Score"),
         use_scan_scores=bool(data.get("useScanScores")),
     )
+    return JsonResponse(state_payload(request, game.match.round.division_id))
+
+
+@api_handler("POST")
+def api_reject_game(request, game_id):
+    user = require_role(request, SystemUser.Role.ADMIN, SystemUser.Role.MONITOR)
+    game = get_object_or_404(
+        MatchGame.objects.select_related("match__round__division__tournament"), id=game_id
+    )
+    _require_active_tournament(game)
+    data = _json_body(request)
+    reject_scan(game, user, data.get("reason", ""))
     return JsonResponse(state_payload(request, game.match.round.division_id))
 
 
@@ -274,9 +334,10 @@ def api_scan_score(request):
     state = None
     if game_id:
         game = get_object_or_404(
-            MatchGame.objects.select_related("match__round"),
+            MatchGame.objects.select_related("match__round__division__tournament"),
             id=game_id,
         )
+        _require_active_tournament(game)
         save_scan_result(game, user, result, winner_team_id=data.get("winnerTeamId"))
         state = state_payload(request, game.match.round.division_id)
 
@@ -284,9 +345,6 @@ def api_scan_score(request):
         {
             "success": True,
             "result": {"Score": {"Victory": result.victory, "Lose": result.lose}},
-            "saved_file": result.saved_file,
-            "evidence_score_left": result.evidence_score_left,
-            "evidence_score_right": result.evidence_score_right,
             "evidence_full": result.evidence_full,
             "state": state,
         }

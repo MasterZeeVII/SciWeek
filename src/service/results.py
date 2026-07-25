@@ -11,26 +11,44 @@ from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.utils import timezone
 
-from common.models import Match, MatchGame, Team
+from common.models import Match, MatchGame
 
 from .bracket import create_games_for_match, is_third_place_match
 
 
 def get_match_winner(match):
+    """Return the Team that has clinched this match, or None.
+
+    Works off match.games.all() and each game's team1/team2 rather than
+    issuing fresh queries — when the caller has prefetched
+    games__team1__school/games__team2__school (as _division_payload and
+    dashboard_stats_payload do), this makes zero additional queries.
+    """
     needed = (match.round.best_of // 2) + 1
-    verified_games = match.games.filter(
-        ocr_status=MatchGame.OcrStatus.VERIFIED,
-        winner_team__isnull=False,
-    )
-    counts = Counter(game.winner_team_id for game in verified_games)
+    counts = Counter()
+    team_by_id = {}
+    for game in match.games.all():
+        if game.ocr_status != MatchGame.OcrStatus.VERIFIED or not game.winner_team_id:
+            continue
+        counts[game.winner_team_id] += 1
+        if game.winner_team_id == game.team1_id:
+            team_by_id[game.winner_team_id] = game.team1
+        elif game.winner_team_id == game.team2_id:
+            team_by_id[game.winner_team_id] = game.team2
     for team_id, wins in counts.items():
         if wins >= needed:
-            return Team.objects.select_related("school").get(id=team_id)
+            return team_by_id.get(team_id)
     return None
 
 
-def get_match_loser(match):
-    winner = get_match_winner(match)
+def get_match_loser(match, winner=None):
+    """Return the losing team of a decided match, or None.
+
+    Pass `winner` when the caller already has the result of
+    get_match_winner(match) (e.g. try_create_next_match_games) to avoid
+    recomputing it."""
+    if winner is None:
+        winner = get_match_winner(match)
     if not winner:
         return None
     team1, team2 = get_match_participants(match)
@@ -51,12 +69,13 @@ def _semifinal_matches(final_round_match):
 
 
 def get_match_participants(match):
-    first_game = (
-        match.games.select_related("team1__school", "team2__school")
-        .order_by("game_number")
-        .first()
-    )
-    if first_game:
+    # match.games.all() (not .filter()/.select_related() here) so this uses
+    # Django's prefetch cache when the caller already loaded
+    # games__team1__school/games__team2__school, instead of issuing a fresh
+    # query every call (see get_match_winner for the same pattern).
+    games = sorted(match.games.all(), key=lambda game: game.game_number)
+    if games:
+        first_game = games[0]
         return first_game.team1, first_game.team2
 
     feeders = list(match.previous_matches.select_related("round").order_by("match_number"))
@@ -77,8 +96,13 @@ def _normalize_score(value):
         score = int(value)
     except (TypeError, ValueError):
         raise ValidationError("Score must be a number.")
-    if score < 0 or score > 65535:
-        raise ValidationError("Score must be between 0 and 65535.")
+    # RoV kill counts run in the low double digits; 100 comfortably covers
+    # any real game while catching typos (e.g. "1400" instead of "14")
+    # before they become a verified, publicly displayed score. The column
+    # itself allows up to 65535 (SMALLINT UNSIGNED) — this is an
+    # application-level sanity cap, not the schema limit.
+    if score < 0 or score > 100:
+        raise ValidationError("Score must be between 0 and 100.")
     return score
 
 
@@ -160,7 +184,61 @@ def set_game_result(
         if old_winner_id and old_winner_id != new_winner_id:
             clear_downstream_matches(match)
 
-        refresh_match_status(match)
+        # Pass the just-computed winner through so refresh_match_status
+        # doesn't recompute it a third time in this same transaction.
+        refresh_match_status(match, winner=new_winner)
+
+
+def reject_scan(game, user, reason):
+    """Reject a game's pending OCR scan (ocr_status -> REJECTED), recording
+    why. Mirrors the "clear result" branch of set_game_result — winner and
+    scores are wiped so the game goes back to needing a fresh scan or a
+    manual entry — but the evidence photo (image_path/uploaded_by) is left
+    alone since the photo itself isn't what's being rejected, the OCR
+    reading is."""
+    reason = (reason or "").strip()
+    if not reason:
+        raise ValidationError("A rejection reason is required.")
+
+    with transaction.atomic():
+        game = (
+            MatchGame.objects.select_related("match__round")
+            .select_for_update()
+            .get(id=game.id)
+        )
+        match = game.match
+        old_winner = get_match_winner(match)
+        old_winner_id = old_winner.id if old_winner else None
+
+        game.winner_team = None
+        game.ocr_kill_team1 = None
+        game.ocr_kill_team2 = None
+        game.kill_team1 = None
+        game.kill_team2 = None
+        game.ocr_status = MatchGame.OcrStatus.REJECTED
+        game.verified_by = None
+        game.verified_at = None
+        game.reject_reason = reason[:255]
+        game.save(
+            update_fields=[
+                "winner_team",
+                "ocr_kill_team1",
+                "ocr_kill_team2",
+                "kill_team1",
+                "kill_team2",
+                "ocr_status",
+                "verified_by",
+                "verified_at",
+                "reject_reason",
+            ]
+        )
+
+        new_winner = get_match_winner(match)
+        new_winner_id = new_winner.id if new_winner else None
+        if old_winner_id and old_winner_id != new_winner_id:
+            clear_downstream_matches(match)
+
+        refresh_match_status(match, winner=new_winner)
 
 
 def get_scan_scores(game):
@@ -176,6 +254,10 @@ def get_scan_scores(game):
     victory = raw.get("victory")
     lose = raw.get("lose")
     if victory is None and lose is None:
+        # Legacy shape only — read-only backward-compat for the historical
+        # rows written before the {"victory","lose","winnerTeamId"} shape.
+        # save_scan_result() no longer writes this nested "Score" form, so
+        # this branch should only ever fire for pre-existing DB rows.
         score = raw.get("Score") or {}
         victory = score.get("Victory")
         lose = score.get("Lose")
@@ -206,11 +288,18 @@ def save_scan_result(game, user, scan, winner_team_id=None):
         # team1 hinted as winner, or no hint (provisional display order)
         game.ocr_kill_team1 = scan.victory
         game.ocr_kill_team2 = scan.lose
+    # Store just the side-agnostic numbers plus the human winner hint — no
+    # duplicate nested "ocr.Score" copy, and no raw EasyOCR result objects
+    # (those get str()-repr'd with numpy literals baked in and aren't
+    # useful once read_number() has already extracted the plain text).
+    # text_left/text_right (plain recognized strings) are kept only to help
+    # debug an OCR misread later.
     game.raw_ocr_json = {
         "victory": scan.victory,
         "lose": scan.lose,
         "winnerTeamId": winner_team_id,
-        "ocr": scan.raw,
+        "text_left": scan.raw.get("text_left"),
+        "text_right": scan.raw.get("text_right"),
     }
     game.image_path = scan.evidence_full
     game.uploaded_by = user
@@ -262,9 +351,15 @@ def _third_place_sibling(final_match):
     return None
 
 
-def refresh_match_status(match):
+def refresh_match_status(match, winner=None):
+    """Recompute match.status and, if newly decided, create next-round games.
+
+    Pass `winner` if the caller already has the result of
+    get_match_winner(match) on the same (post-save) DB state, to skip
+    recomputing it here."""
     match = Match.objects.select_related("round").prefetch_related("games").get(id=match.id)
-    winner = get_match_winner(match)
+    if winner is None:
+        winner = get_match_winner(match)
     if winner:
         if match.status != Match.Status.COMPLETED:
             match.status = Match.Status.COMPLETED
@@ -292,13 +387,26 @@ def try_create_next_match_games(completed_match):
     if len(feeders) != 2:
         return
 
-    if not next_match.games.exists():
-        winners = [get_match_winner(feeder) for feeder in feeders]
-        if all(winners):
-            create_games_for_match(next_match, winners[0], winners[1])
-
+    next_needs_games = not next_match.games.exists()
     third = _third_place_sibling(next_match)
-    if third and not third.games.exists():
-        losers = [get_match_loser(feeder) for feeder in feeders]
+    third_needs_games = bool(third) and not third.games.exists()
+    if not next_needs_games and not third_needs_games:
+        # Both already created (the common case on repeat calls once a
+        # match is decided) — skip recomputing winners entirely.
+        return
+
+    # Compute each feeder's winner once and thread it through get_match_loser
+    # below — get_match_loser(feeder) without a hint would otherwise
+    # recompute get_match_winner(feeder) again per feeder.
+    winners = [get_match_winner(feeder) for feeder in feeders]
+
+    if next_needs_games and all(winners):
+        create_games_for_match(next_match, winners[0], winners[1])
+
+    if third_needs_games:
+        losers = [
+            get_match_loser(feeder, winner) if winner else None
+            for feeder, winner in zip(feeders, winners)
+        ]
         if all(losers):
             create_games_for_match(third, losers[0], losers[1])

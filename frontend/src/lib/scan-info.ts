@@ -18,7 +18,10 @@ export function getScanInfo(game: Game): ScanInfo | null {
   let victory = typeof obj.victory === "number" ? obj.victory : null
   let lose = typeof obj.lose === "number" ? obj.lose : null
   if (victory === null && lose === null) {
-    // Legacy shape from before the winner-hint redesign
+    // Legacy shape from before the winner-hint redesign. Read-only
+    // backward-compat for historical rows — new scans are always written
+    // as {"victory","lose","winnerTeamId"} by save_scan_result(), never
+    // this nested "Score" shape.
     const score = obj.Score as Record<string, unknown> | undefined
     if (score && typeof score === "object") {
       victory = typeof score.Victory === "number" ? score.Victory : null

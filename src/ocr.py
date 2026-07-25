@@ -1,5 +1,4 @@
 import base64
-import json
 import re
 from dataclasses import dataclass
 from datetime import datetime
@@ -14,17 +13,13 @@ DEFAULT_ROI_SCORE_RIGHT = {"x": 0.56, "y": 0.12, "width": 0.15, "height": 0.08}
 DEFAULT_ROI_FULL = {"x": 0.00, "y": 0.12, "width": 1.00, "height": 0.40}
 
 _reader = None
-_last_score = None
 
 
 @dataclass
 class ScanResult:
     victory: int | None
     lose: int | None
-    evidence_score_left: str
-    evidence_score_right: str
     evidence_full: str
-    saved_file: str | None
     raw: dict
 
 
@@ -72,7 +67,6 @@ def _relative(path):
 
 
 def scan_score_image(image_data, roi_score_left=None, roi_score_right=None, roi_full=None):
-    global _last_score
     cv2, _easyocr, np = _load_ocr_dependencies()
     reader = _get_reader()
 
@@ -115,8 +109,11 @@ def scan_score_image(image_data, roi_score_left=None, roi_score_right=None, roi_
         nums = re.findall(r"\d+", text)
         return int(nums[0]) if nums else None, text, results
 
-    victory, text_left, results_left = read_number(cropped_left)
-    lose, text_right, results_right = read_number(cropped_right)
+    # read_number's third return value (the raw EasyOCR bbox/confidence
+    # tuples) is discarded here — text_left/text_right are the plain
+    # recognized strings, which is all that's worth persisting.
+    victory, text_left, _results_left = read_number(cropped_left)
+    lose, text_right, _results_right = read_number(cropped_right)
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
     folder = Path(settings.MEDIA_ROOT) / "evidence" / "ocr"
@@ -130,27 +127,16 @@ def scan_score_image(image_data, roi_score_left=None, roi_score_right=None, roi_
     cv2.imwrite(str(score_right_path), cropped_right)
     cv2.imwrite(str(full_path), cropped_full)
 
-    current_score = (victory, lose)
-    saved_file = None
-    if current_score != _last_score:
-        _last_score = current_score
-        json_path = folder / f"score_{timestamp}.json"
-        json_payload = {"Score": {"Victory": victory, "Lose": lose}}
-        json_path.write_text(
-            json.dumps(json_payload, indent=2, ensure_ascii=False),
-            encoding="utf-8",
-        )
-        saved_file = _relative(json_path)
-
+    # No standalone score_<timestamp>.json here — the MatchGame row
+    # (raw_ocr_json, written by service.results.save_scan_result) is the
+    # one record of truth for a scan's result; a second copy on disk with
+    # no FK back to the game it belongs to just orphans itself.
     raw = {
-        "Score": {"Victory": victory, "Lose": lose},
         "roi_score_left": roi_score_left,
         "roi_score_right": roi_score_right,
         "roi_full": roi_full,
         "text_left": text_left,
         "text_right": text_right,
-        "results_left": str(results_left),
-        "results_right": str(results_right),
         "evidence_score_left": _relative(score_left_path),
         "evidence_score_right": _relative(score_right_path),
         "evidence_full": _relative(full_path),
@@ -159,10 +145,7 @@ def scan_score_image(image_data, roi_score_left=None, roi_score_right=None, roi_
     return ScanResult(
         victory=victory,
         lose=lose,
-        evidence_score_left=_relative(score_left_path),
-        evidence_score_right=_relative(score_right_path),
         evidence_full=_relative(full_path),
-        saved_file=saved_file,
         raw=raw,
     )
 

@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react"
 import { Link, useParams } from "react-router-dom"
 import { motion, AnimatePresence } from "motion/react"
-import { ArrowLeft } from "lucide-react"
 import { fetchTournament, type TournamentDetail } from "@/lib/public-api"
+import { SiteTopbar } from "@/components/public/site-topbar"
 import { TournamentHeader } from "@/components/public/tournament-header"
 import { NavTabs, type TabId } from "@/components/public/nav-tabs"
 import { TabOverview } from "@/components/public/tab-overview"
@@ -73,18 +73,7 @@ export function TournamentPage() {
 
   return (
     <main className="min-h-screen bg-background font-sans">
-      {/* Back to index */}
-      <div className="bg-card border-b border-border">
-        <div className="max-w-6xl mx-auto px-4 md:px-8 py-2">
-          <Link
-            to="/"
-            className="inline-flex items-center gap-1.5 text-xs font-semibold text-muted-foreground hover:text-brand transition-colors"
-          >
-            <ArrowLeft className="w-3.5 h-3.5" />
-            ทุกซีซั่น
-          </Link>
-        </div>
-      </div>
+      <SiteTopbar crumb={tournament.name} />
 
       <TournamentHeader tournament={tournament} />
       <NavTabs activeTab={activeTab} onTabChange={setActiveTab} stages={tournament.stages} />

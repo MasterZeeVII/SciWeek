@@ -27,9 +27,6 @@ export interface ScanScoreResponse {
       Lose: number | null
     }
   }
-  saved_file: string | null
-  evidence_score_left: string
-  evidence_score_right: string
   evidence_full: string
   state: ApiState | null
 }
@@ -136,6 +133,12 @@ export const api = {
     return request<ApiState>(`/api/games/${gameId}/result/`, {
       method: "POST",
       body: JSON.stringify(data),
+    })
+  },
+  rejectGame(gameId: number, reason: string) {
+    return request<ApiState>(`/api/games/${gameId}/reject/`, {
+      method: "POST",
+      body: JSON.stringify({ reason }),
     })
   },
   scanScore(

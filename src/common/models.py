@@ -178,6 +178,19 @@ class Match(models.Model):
         related_name="matches",
     )
     match_number = models.PositiveSmallIntegerField()
+    # Kept as SET_NULL (not CASCADE) deliberately: `SHOW CREATE TABLE matches`
+    # against the live DB confirms `fk_match_next` is genuinely
+    # `ON DELETE SET NULL` at the DB level (see sciweek.sql). Since this repo
+    # treats the database as the schema's source of truth and has no
+    # migrations, the Django-side on_delete must match what the DB actually
+    # enforces — declaring CASCADE here would make the model lie about what
+    # happens on a delete that bypasses the ORM. In practice this ambiguity
+    # (next_match is null either because this is the final match, or
+    # because a referenced match row was deleted) is dormant: the only
+    # delete path in this codebase is reset_division_bracket(), which
+    # deletes whole Rounds (cascading to every Match in the division at
+    # once), so a match's next_match is never nulled out from under a
+    # surviving sibling match.
     next_match = models.ForeignKey(
         "self",
         on_delete=models.SET_NULL,

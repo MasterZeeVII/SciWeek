@@ -21,8 +21,13 @@ function notifyGameChanges(previous: Tournament | null, next: Tournament) {
     const previousMatch = previousMatchById.get(match.id)
     if (!previousMatch) continue
 
+    // Keyed by game id, not array index — clear_downstream_matches()
+    // deletes and recreates game rows, which can reorder or resize this
+    // array, so index-pairing would mis-attribute a toast to the wrong game.
+    const previousGameById = new Map(previousMatch.games.map((game) => [game.id, game]))
+
     match.games.forEach((game, index) => {
-      const previousGame = previousMatch.games[index]
+      const previousGame = previousGameById.get(game.id)
       if (!previousGame) return
 
       const wasVerified = previousGame.ocrStatus === "VERIFIED"
@@ -82,6 +87,7 @@ interface TournamentContextType {
     team2Score?: number | null,
     options?: { useScanScores?: boolean },
   ) => Promise<void>
+  rejectGameScan: (matchId: string, gameIndex: number, reason: string) => Promise<void>
   scanGameScore: (
     matchId: string,
     gameIndex: number,
@@ -417,6 +423,20 @@ export function TournamentProvider({ children }: { children: ReactNode }) {
     [applyState, tournament?.matches],
   )
 
+  const rejectGameScan = useCallback(
+    async (matchId: string, gameIndex: number, reason: string) => {
+      const match = tournament?.matches.find((item) => item.id === matchId)
+      const game = match?.games[gameIndex]
+      if (!game) return
+      try {
+        applyState(await api.rejectGame(game.id, reason))
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Cannot reject scan.")
+      }
+    },
+    [applyState, tournament?.matches],
+  )
+
   const scanGameScore = useCallback(
     async (
       matchId: string,
@@ -479,6 +499,7 @@ export function TournamentProvider({ children }: { children: ReactNode }) {
         updateRoundConfig,
         generateBracket,
         updateMatchResult,
+        rejectGameScan,
         scanGameScore,
         resetTournament,
         refresh,
