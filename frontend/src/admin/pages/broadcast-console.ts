@@ -178,6 +178,9 @@ export function computeSuggestions(value: string, tokens: Token[], cursor: numbe
 
   if (activeIndex === 0) {
     const prefix = active.text.toLowerCase()
+    // Nothing typed yet — don't dump every command on someone who just
+    // clicked into the box.
+    if (!prefix) return EMPTY_SUGGESTIONS
     const items: SuggestionItem[] = COMMANDS.filter((c) => c !== prefix && c.startsWith(prefix)).map((c) => ({
       label: c,
       hint: COMMAND_HINT[c],
@@ -205,6 +208,9 @@ export function computeSuggestions(value: string, tokens: Token[], cursor: numbe
   const eqIndex = active.text.indexOf("=")
   if (eqIndex === -1) {
     const prefix = active.text.toLowerCase()
+    // Same rule as the command list — a bare "/notify " with nothing after
+    // it shouldn't immediately dump all eleven fields.
+    if (!prefix) return EMPTY_SUGGESTIONS
     const available = FIELD_ORDER.filter((f) => !usedKeys.has(f))
     const items: SuggestionItem[] = available
       .filter((f) => f.startsWith(prefix))
@@ -230,4 +236,102 @@ export function computeSuggestions(value: string, tokens: Token[], cursor: numbe
     .filter((v) => v.startsWith(valuePrefix))
     .map((v) => ({ label: v, insert: `${v} ` }))
   return { items, highlight: 0, range: items.length ? { start: active.start, end: active.end } : null, hint: null }
+}
+
+// ── Syntax highlighting ──────────────────────────────────────────────
+// Renders as an absolutely-positioned overlay behind a transparent-text
+// <input> (see admin-broadcast.tsx) — so every segment's `text` must
+// concatenate back to exactly the original string, whitespace included,
+// or the colored layer drifts out of alignment with the real caret.
+
+export interface HighlightSegment {
+  text: string
+  className: string
+}
+
+export const HIGHLIGHT_CLASS = {
+  base: "text-[#f4f5fb]",
+  command: "text-[#f0c04a]",
+  key: "text-[#3e7be2]",
+  keyBad: "text-[#e23e3e]",
+  punct: "text-[#5b6083]",
+  string: "text-[#9ece6a]",
+  number: "text-[#e0af68]",
+  constant: "text-[#bb9af7]",
+} as const
+
+const NUMBER_RE = /^-?\d+(\.\d+)?$/
+const FIELD_SET: ReadonlySet<string> = new Set(FIELD_ORDER)
+
+function isQuoted(raw: string): boolean {
+  return raw.length >= 2 && (raw[0] === '"' || raw[0] === "'") && raw[raw.length - 1] === raw[0]
+}
+
+/** Splits a raw (quote-including) `key=value` token on the first "="
+ * that isn't inside quotes — so `message="score=2-1"` still treats the
+ * outer "=" as the separator, not the one inside the string. */
+function splitKeyValueRaw(raw: string): { key: string; eq: string; value: string } {
+  let inQuote: string | null = null
+  for (let i = 0; i < raw.length; i++) {
+    const ch = raw[i]
+    if (inQuote) {
+      if (ch === inQuote) inQuote = null
+      continue
+    }
+    if (ch === '"' || ch === "'") {
+      inQuote = ch
+    } else if (ch === "=") {
+      return { key: raw.slice(0, i), eq: "=", value: raw.slice(i + 1) }
+    }
+  }
+  return { key: raw, eq: "", value: "" }
+}
+
+export function highlightSegments(value: string): HighlightSegment[] {
+  const tokens = tokenizeWithRanges(value)
+  const segments: HighlightSegment[] = []
+  let cursor = 0
+
+  const pushRange = (end: number, className: string) => {
+    if (end > cursor) segments.push({ text: value.slice(cursor, end), className })
+    cursor = end
+  }
+
+  const isNotify = tokens.length > 0 && value.slice(tokens[0].start, tokens[0].end).toLowerCase() === "/notify"
+
+  tokens.forEach((token, index) => {
+    pushRange(token.start, HIGHLIGHT_CLASS.base) // whitespace before this token
+
+    if (index === 0) {
+      pushRange(token.end, HIGHLIGHT_CLASS.command)
+      return
+    }
+    if (!isNotify) {
+      pushRange(token.end, HIGHLIGHT_CLASS.base)
+      return
+    }
+
+    const raw = value.slice(token.start, token.end)
+    const { key, eq, value: rawValue } = splitKeyValueRaw(raw)
+    const keyLower = key.toLowerCase()
+
+    pushRange(cursor + key.length, FIELD_SET.has(keyLower) ? HIGHLIGHT_CLASS.key : HIGHLIGHT_CLASS.keyBad)
+    if (eq) pushRange(cursor + eq.length, HIGHLIGHT_CLASS.punct)
+    if (rawValue) {
+      let valueClass: string = HIGHLIGHT_CLASS.base
+      if (isQuoted(rawValue)) valueClass = HIGHLIGHT_CLASS.string
+      else if (NUMBER_RE.test(rawValue)) valueClass = HIGHLIGHT_CLASS.number
+      else if (
+        (keyLower === "winner" && (rawValue === "team1" || rawValue === "team2")) ||
+        (keyLower === "thirdplace" && (rawValue === "true" || rawValue === "false"))
+      ) {
+        valueClass = HIGHLIGHT_CLASS.constant
+      }
+      pushRange(token.end, valueClass)
+    }
+    cursor = token.end
+  })
+
+  pushRange(value.length, HIGHLIGHT_CLASS.base)
+  return segments
 }

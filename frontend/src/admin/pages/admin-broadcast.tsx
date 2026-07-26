@@ -8,6 +8,7 @@ import {
   buildChecklist,
   computeSuggestions,
   EMPTY_SUGGESTIONS,
+  highlightSegments,
   nearestMatch,
   REQUIRED_FIELDS,
   tokenizeWithRanges,
@@ -53,6 +54,9 @@ export function AdminBroadcast() {
   const [checklist, setChecklist] = useState<{ field: string; present: boolean }[] | null>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
+  // The colored overlay sitting behind the (text-transparent) real input —
+  // kept in horizontal scroll sync with it in onInputScroll below.
+  const highlightRef = useRef<HTMLDivElement>(null)
   // Cursor position to restore after an autocomplete splice — the <input>
   // is controlled, so setSelectionRange only sticks once React has
   // re-rendered with the new value (hence the effect below, not an inline call).
@@ -184,11 +188,19 @@ export function AdminBroadcast() {
     const value = e.target.value
     setInput(value)
     refreshAssist(value, e.target.selectionStart ?? value.length)
+    if (highlightRef.current) highlightRef.current.scrollLeft = e.target.scrollLeft
   }
 
   const onInputSelect = (e: React.SyntheticEvent<HTMLInputElement>) => {
     const el = e.currentTarget
     refreshAssist(el.value, el.selectionStart ?? el.value.length)
+  }
+
+  // The real <input> scrolls internally once text overflows its box; the
+  // highlight overlay behind it has to shift by the same amount or the
+  // colors drift away from the (invisible) real characters.
+  const onInputScroll = (e: React.UIEvent<HTMLInputElement>) => {
+    if (highlightRef.current) highlightRef.current.scrollLeft = e.currentTarget.scrollLeft
   }
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -226,6 +238,8 @@ export function AdminBroadcast() {
     output: "text-[#8b91b3]",
     error: "text-[#e23e3e]",
   }
+
+  const highlighted = highlightSegments(input)
 
   return (
     <div className="p-6 md:p-8 max-w-3xl mx-auto">
@@ -273,7 +287,7 @@ export function AdminBroadcast() {
         initial={{ opacity: 0, y: 12 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.35, ease: "easeOut", delay: 0.1 }}
-        className="rounded-xl border border-[#262c4d] bg-[#05060d] overflow-hidden shadow-xl"
+        className="rounded-xl border border-[#262c4d] bg-[#05060d] overflow-hidden shadow-xl transition-shadow focus-within:border-brand/50 focus-within:shadow-[0_0_0_3px_rgba(240,192,74,0.12)]"
         onClick={() => inputRef.current?.focus()}
       >
         <div className="flex items-center gap-1.5 px-4 py-2.5 border-b border-[#262c4d]">
@@ -294,11 +308,15 @@ export function AdminBroadcast() {
         {/* Required-field checklist for the line currently being typed —
             only shows once the line starts with /notify. */}
         {checklist && (
-          <div className="flex items-center gap-3 flex-wrap px-4 py-2 border-t border-[#262c4d] bg-black/20">
+          <div className="flex items-center gap-1.5 flex-wrap px-4 py-2 border-t border-[#262c4d] bg-black/20">
             {checklist.map(({ field, present }) => (
               <span
                 key={field}
-                className={`text-[11px] font-mono ${present ? "text-[#3e7be2]" : "text-[#5b6083]"}`}
+                className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-mono border transition-colors ${
+                  present
+                    ? "border-[#3e7be2]/40 bg-[#3e7be2]/10 text-[#3e7be2]"
+                    : "border-[#262c4d] text-[#5b6083]"
+                }`}
               >
                 {present ? "✓" : "○"} {field}
               </span>
@@ -308,12 +326,12 @@ export function AdminBroadcast() {
 
         {suggestion.hint && (
           <div className="px-4 py-1.5 border-t border-[#262c4d] text-[11px] font-mono text-[#f0c04a]">
-            {suggestion.hint}
+            ⚠ {suggestion.hint}
           </div>
         )}
 
         {suggestion.items.length > 0 && (
-          <div className="border-t border-[#262c4d] max-h-40 overflow-y-auto">
+          <div className="border-t border-[#262c4d] max-h-40 overflow-y-auto py-1">
             {suggestion.items.map((item, i) => (
               <button
                 key={item.label}
@@ -323,8 +341,8 @@ export function AdminBroadcast() {
                   acceptSuggestion(item)
                 }}
                 onMouseEnter={() => setSuggestion((s) => ({ ...s, highlight: i }))}
-                className={`w-full flex items-center gap-3 px-4 py-1.5 text-left font-mono text-[12px] ${
-                  i === suggestion.highlight ? "bg-brand/15 text-[#f0c04a]" : "text-[#8b91b3]"
+                className={`mx-1.5 w-[calc(100%-0.75rem)] flex items-center gap-3 rounded-md px-2.5 py-1.5 text-left font-mono text-[12px] transition-colors ${
+                  i === suggestion.highlight ? "bg-brand/15 text-[#f0c04a]" : "text-[#8b91b3] hover:bg-white/5"
                 }`}
               >
                 <span className="text-[#f4f5fb]">{item.label}</span>
@@ -336,32 +354,57 @@ export function AdminBroadcast() {
 
         <form onSubmit={onSubmit} className="flex items-center gap-2 border-t border-[#262c4d] px-4 py-3">
           <span className="font-mono text-sm text-[#f0c04a] select-none">{">"}</span>
-          <input
-            ref={inputRef}
-            type="text"
-            value={input}
-            onChange={onInputChange}
-            onSelect={onInputSelect}
-            onKeyDown={onKeyDown}
-            disabled={busy}
-            placeholder="/notify team1=... team2=... winner=team1 message=&quot;...&quot;"
-            autoComplete="off"
-            spellCheck={false}
-            className="flex-1 bg-transparent font-mono text-sm text-[#f4f5fb] placeholder:text-[#3f4463] outline-none disabled:opacity-60"
-          />
+          {/* Overlay trick: the real <input>'s own text is transparent (its
+              caret still shows), and this non-interactive layer underneath
+              renders the same string colored by token type. Both share the
+              exact font/size so characters line up 1:1. */}
+          <div className="relative flex-1 font-mono text-sm leading-5">
+            <div
+              ref={highlightRef}
+              aria-hidden="true"
+              className="absolute inset-0 overflow-hidden whitespace-pre pointer-events-none"
+            >
+              {input.length === 0 && (
+                <span className="text-[#3f4463]">
+                  /notify team1=... team2=... winner=team1 message="..."
+                </span>
+              )}
+              {highlighted.map((seg, i) => (
+                <span key={i} className={seg.className}>
+                  {seg.text}
+                </span>
+              ))}
+            </div>
+            <input
+              ref={inputRef}
+              type="text"
+              value={input}
+              onChange={onInputChange}
+              onSelect={onInputSelect}
+              onScroll={onInputScroll}
+              onKeyDown={onKeyDown}
+              disabled={busy}
+              autoComplete="off"
+              spellCheck={false}
+              className="relative w-full bg-transparent font-mono text-sm leading-5 text-transparent caret-[#f4f5fb] outline-none disabled:opacity-60"
+            />
+          </div>
         </form>
       </motion.div>
 
       <div className="mt-3 flex items-center justify-between gap-3 flex-wrap">
-        <p className="text-xs text-muted-foreground">
-          กด <code className="px-1 py-0.5 rounded bg-muted font-mono">Tab</code> เพื่อเติมคำสั่ง/ฟิลด์อัตโนมัติ,{" "}
-          <code className="px-1 py-0.5 rounded bg-muted font-mono">↑↓</code> เลือก,{" "}
-          <code className="px-1 py-0.5 rounded bg-muted font-mono">Esc</code> ปิดคำแนะนำ
-        </p>
+        <div className="flex items-center gap-3 flex-wrap text-[11px] font-mono">
+          <span className="text-[#f0c04a]">■ คำสั่ง</span>
+          <span className="text-[#3e7be2]">■ ฟิลด์</span>
+          <span className="text-[#9ece6a]">■ ข้อความ</span>
+          <span className="text-[#e0af68]">■ ตัวเลข</span>
+          <span className="text-[#bb9af7]">■ ค่าคงที่</span>
+        </div>
         <button
           type="button"
           onClick={() => {
             setInput(EXAMPLE_COMMAND)
+            refreshAssist(EXAMPLE_COMMAND, EXAMPLE_COMMAND.length)
             inputRef.current?.focus()
           }}
           className="text-xs font-semibold text-brand hover:underline"
@@ -369,6 +412,12 @@ export function AdminBroadcast() {
           แทรกตัวอย่างคำสั่ง
         </button>
       </div>
+
+      <p className="mt-2 text-xs text-muted-foreground">
+        กด <code className="px-1 py-0.5 rounded bg-muted font-mono">Tab</code> เพื่อเติมคำสั่ง/ฟิลด์อัตโนมัติ,{" "}
+        <code className="px-1 py-0.5 rounded bg-muted font-mono">↑↓</code> เลือก,{" "}
+        <code className="px-1 py-0.5 rounded bg-muted font-mono">Esc</code> ปิดคำแนะนำ
+      </p>
     </div>
   )
 }

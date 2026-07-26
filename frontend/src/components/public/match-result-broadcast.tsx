@@ -233,12 +233,40 @@ const STYLES = `
 .mb-close:focus-visible { outline: 2px solid var(--brass); outline-offset: 2px; }
 
 @media (max-width: 820px) {
-  .mb-stage { --edge: 29vh; --shift: 7vh; }
+  /* Mobile flips the split from left/right to top/bottom. The plate boundary
+     runs edge-to-edge, dropping by --seam-drop below the mid-line on the left
+     and rising the same amount on the right, so its mid-point is always at
+     50% (+/- --edge once a verdict lands).
 
-  .mb-plate[data-side="a"] { clip-path: polygon(0 0, 100% 0, 100% 43%, 0 57%); }
-  .mb-plate[data-side="b"] { clip-path: polygon(0 57%, 100% 43%, 100% 100%, 0 100%); }
-  .mb-stage[data-verdict="a"] .mb-plate[data-side="a"] { clip-path: polygon(0 0, 100% 0, 100% 72%, 0 86%); }
-  .mb-stage[data-verdict="b"] .mb-plate[data-side="b"] { clip-path: polygon(0 28%, 100% 14%, 100% 100%, 0 100%); }
+     --seam-drop is a LENGTH, not a percentage of the plate box: a percentage
+     would resolve against viewport *height* while the run resolves against
+     viewport *width*, making the on-screen angle depend on aspect ratio while
+     the seam decoration below used a fixed rotation. Same length unit on both
+     sides => one slope drives the clip AND the seam. Capped in vh so a short
+     landscape viewport doesn't get a wedge deep enough to eat the score text. */
+  .mb-stage {
+    --edge: 29vh; --shift: 7vh;
+    --seam-drop: min(7vw, 4.5vh);
+    /* atan(2 * 7vw / 100vw) — static fallback for engines without CSS trig. */
+    --seam-angle: -7.97deg;
+  }
+  @supports (rotate: atan2(1px, 2px)) {
+    /* rise = -2 * --seam-drop over a run of 100vw. */
+    .mb-stage { --seam-angle: atan2(calc(var(--seam-drop) * -2), 100vw); }
+  }
+
+  .mb-plate[data-side="a"] {
+    clip-path: polygon(0 0, 100% 0, 100% calc(50% - var(--seam-drop)), 0 calc(50% + var(--seam-drop)));
+  }
+  .mb-plate[data-side="b"] {
+    clip-path: polygon(0 calc(50% + var(--seam-drop)), 100% calc(50% - var(--seam-drop)), 100% 100%, 0 100%);
+  }
+  .mb-stage[data-verdict="a"] .mb-plate[data-side="a"] {
+    clip-path: polygon(0 0, 100% 0, 100% calc(50% + var(--edge) - var(--seam-drop)), 0 calc(50% + var(--edge) + var(--seam-drop)));
+  }
+  .mb-stage[data-verdict="b"] .mb-plate[data-side="b"] {
+    clip-path: polygon(0 calc(50% - var(--edge) + var(--seam-drop)), 100% calc(50% - var(--edge) - var(--seam-drop)), 100% 100%, 0 100%);
+  }
   @keyframes mb-in-l { from { opacity: 0; transform: translateY(-10%); } to { opacity: 1; transform: translateY(0); } }
   @keyframes mb-in-r { from { opacity: 0; transform: translateY(10%);  } to { opacity: 1; transform: translateY(0); } }
 
@@ -257,24 +285,31 @@ const STYLES = `
   @keyframes mb-rise-l { from { opacity: 0; transform: translateY(-20px); } to { opacity: 1; transform: translateY(0); } }
   @keyframes mb-rise-r { from { opacity: 0; transform: translateY(20px);  } to { opacity: 1; transform: translateY(0); } }
 
+  /* The seam's box is centred on the boundary's mid-point (top: 50%, and
+     horizontally centred by the symmetric -12% insets), so rotating it by the
+     boundary's own slope puts it exactly on the boundary line — at rest and
+     after the mid-point slides by --edge. */
   .mb-seam {
     top: 50%; bottom: auto; left: -12%; right: -12%; width: auto; height: 1px;
     background: linear-gradient(90deg, transparent, rgba(255,255,255,.42) 20%, rgba(255,255,255,.42) 80%, transparent);
-    transform: translateY(0) rotate(-5deg);
+    transform: translateY(0) rotate(var(--seam-angle));
   }
   .mb-stage[data-verdict="a"] .mb-seam,
   .mb-stage[data-verdict="b"] .mb-seam {
     width: auto; height: 2px;
     background: linear-gradient(90deg, transparent, var(--brass) 18%, var(--brass) 82%, transparent);
   }
-  .mb-stage[data-verdict="a"] .mb-seam { transform: translateY(var(--edge)) rotate(-5deg); }
-  .mb-stage[data-verdict="b"] .mb-seam { transform: translateY(calc(var(--edge) * -1)) rotate(-5deg); }
+  .mb-stage[data-verdict="a"] .mb-seam { transform: translateY(var(--edge)) rotate(var(--seam-angle)); }
+  .mb-stage[data-verdict="b"] .mb-seam { transform: translateY(calc(var(--edge) * -1)) rotate(var(--seam-angle)); }
 
+  /* Casts hang off the boundary rather than straddling it, so they pivot about
+     the edge that touches it (top edge for --r, bottom edge for --l) instead of
+     their own centre — otherwise rotation lifts that edge off the boundary. */
   .mb-cast { top: auto; bottom: auto; left: -18%; right: -18%; width: auto; height: clamp(90px, 15vh, 180px); }
-  .mb-cast--r { top: 50%; background: linear-gradient(180deg, rgba(0,0,0,.85), rgba(0,0,0,0)); transform: translateY(0) rotate(-5deg); }
-  .mb-cast--l { bottom: 50%; top: auto; background: linear-gradient(0deg, rgba(0,0,0,.85), rgba(0,0,0,0)); transform: translateY(0) rotate(-5deg); }
-  .mb-stage[data-verdict="a"] .mb-cast--r { transform: translateY(var(--edge)) rotate(-5deg); }
-  .mb-stage[data-verdict="b"] .mb-cast--l { transform: translateY(calc(var(--edge) * -1)) rotate(-5deg); }
+  .mb-cast--r { top: 50%; transform-origin: 50% 0; background: linear-gradient(180deg, rgba(0,0,0,.85), rgba(0,0,0,0)); transform: translateY(0) rotate(var(--seam-angle)); }
+  .mb-cast--l { bottom: 50%; top: auto; transform-origin: 50% 100%; background: linear-gradient(0deg, rgba(0,0,0,.85), rgba(0,0,0,0)); transform: translateY(0) rotate(var(--seam-angle)); }
+  .mb-stage[data-verdict="a"] .mb-cast--r { transform: translateY(var(--edge)) rotate(var(--seam-angle)); }
+  .mb-stage[data-verdict="b"] .mb-cast--l { transform: translateY(calc(var(--edge) * -1)) rotate(var(--seam-angle)); }
 
   .mb-meta { padding: 0 20px; gap: 10px; }
 }
