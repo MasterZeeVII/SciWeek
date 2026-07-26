@@ -3,6 +3,7 @@ import { Toaster } from "sonner"
 
 import { HomePage } from "@/pages/home-page"
 import { TournamentPage } from "@/pages/tournament-page"
+import { PublicLayout } from "@/components/public/public-layout"
 import { TournamentProvider } from "@/lib/tournament-context"
 import { AdminApp } from "@/admin/admin-app"
 import { AdminDashboard } from "@/admin/pages/admin-dashboard"
@@ -12,6 +13,7 @@ import { AdminParticipants } from "@/admin/pages/admin-participants"
 import { AdminMatches } from "@/admin/pages/admin-matches"
 import { AdminScan } from "@/admin/pages/admin-scan"
 import { AdminBracket } from "@/admin/pages/admin-bracket"
+import { AdminBroadcast } from "@/admin/pages/admin-broadcast"
 import { AdminUsers } from "@/admin/pages/admin-users"
 
 export default function App() {
@@ -19,9 +21,12 @@ export default function App() {
     <BrowserRouter>
       <Toaster position="top-center" richColors closeButton />
       <Routes>
-        {/* Public site — no login required */}
-        <Route path="/" element={<HomePage />} />
-        <Route path="/tournament/:id" element={<TournamentPage />} />
+        {/* Public site — no login required. Shares PublicLayout so the
+            broadcast listener stays mounted across navigation between them. */}
+        <Route element={<PublicLayout />}>
+          <Route path="/" element={<HomePage />} />
+          <Route path="/tournament/:id" element={<TournamentPage />} />
+        </Route>
 
         {/* Staff control panel — the only place that asks for a login */}
         <Route
@@ -39,6 +44,7 @@ export default function App() {
           <Route path="matches" element={<AdminMatches />} />
           <Route path="scan" element={<AdminScan />} />
           <Route path="bracket" element={<AdminBracket />} />
+          <Route path="broadcast" element={<AdminBroadcast />} />
           <Route path="users" element={<AdminUsers />} />
         </Route>
 

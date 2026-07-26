@@ -14,6 +14,8 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
 ------------------------------------------------------------------ */
 
 const REVEAL_MS = 1150
+const HOLD_MS = 6000
+const EXIT_MS = 450
 
 const STYLES = `
 .mb-stage {
@@ -303,6 +305,9 @@ export interface BroadcastGameResult {
   outcome: "advance" | "champion" | "third-place" | null
   /** Only set when outcome === "advance". */
   advanceRoundName: string | null
+  /** Free-text verdict line, e.g. from an admin's manual /notify push.
+   * When set, it replaces the outcome-derived copy below entirely. */
+  message?: string | null
 }
 
 function Plate({
@@ -338,22 +343,46 @@ export function MatchResultBroadcast({
   onClose: () => void
 }) {
   const [phase, setPhase] = useState<"reveal" | "resolved">("reveal")
+  // Two-stage lifecycle so the stage's opacity transition has something to
+  // animate from/to: mounts closed, opens a frame later (entrance fade-in),
+  // then flips back to closed on requestClose and only unmounts (via
+  // onClose) once that fade-out transition has actually finished.
+  const [open, setOpen] = useState(false)
+  const [closing, setClosing] = useState(false)
   const closeRef = useRef<HTMLButtonElement>(null)
 
   useEffect(() => {
     setPhase("reveal")
+    setOpen(false)
+    setClosing(false)
+    const raf = requestAnimationFrame(() => setOpen(true))
     const t = window.setTimeout(() => setPhase("resolved"), REVEAL_MS)
-    return () => window.clearTimeout(t)
+    return () => {
+      cancelAnimationFrame(raf)
+      window.clearTimeout(t)
+    }
   }, [result.key])
 
-  const close = useCallback(() => onClose(), [onClose])
+  const requestClose = useCallback(() => setClosing(true), [])
 
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && close()
+    if (closing) return
+    const t = window.setTimeout(requestClose, HOLD_MS)
+    return () => window.clearTimeout(t)
+  }, [result.key, closing, requestClose])
+
+  useEffect(() => {
+    if (!closing) return
+    const t = window.setTimeout(onClose, EXIT_MS)
+    return () => window.clearTimeout(t)
+  }, [closing, onClose])
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && requestClose()
     window.addEventListener("keydown", onKey)
     closeRef.current?.focus()
     return () => window.removeEventListener("keydown", onKey)
-  }, [close])
+  }, [requestClose])
 
   const resolved = phase === "resolved"
   const aWins = result.winner === "team1"
@@ -364,7 +393,15 @@ export function MatchResultBroadcast({
   const scoreLine = `${result.kills1 ?? "–"}–${result.kills2 ?? "–"}`
 
   let verdictLine: ReactNode
-  if (result.outcome === "champion") {
+  if (result.message) {
+    verdictLine = (
+      <>
+        <em>{winnerName}</em>
+        <u>{scoreLine}</u>
+        <span>{result.message}</span>
+      </>
+    )
+  } else if (result.outcome === "champion") {
     verdictLine = (
       <>
         <em>{winnerName}</em>
@@ -404,7 +441,7 @@ export function MatchResultBroadcast({
       role="dialog"
       aria-modal="true"
       aria-label={`ผลเกม ${result.gameNumber}: ${result.team1} ${result.kills1 ?? "?"} - ${result.team2} ${result.kills2 ?? "?"}`}
-      data-open="true"
+      data-open={open && !closing}
       data-verdict={verdict}
     >
       <style>{STYLES}</style>
@@ -442,7 +479,7 @@ export function MatchResultBroadcast({
         </div>
       </div>
 
-      <button className="mb-close" ref={closeRef} onClick={close}>
+      <button className="mb-close" ref={closeRef} onClick={requestClose}>
         ปิด
       </button>
     </div>
