@@ -13,7 +13,6 @@ import { AdminParticipants } from "@/admin/pages/admin-participants"
 import { AdminMatches } from "@/admin/pages/admin-matches"
 import { AdminScan } from "@/admin/pages/admin-scan"
 import { AdminBracket } from "@/admin/pages/admin-bracket"
-import { AdminBroadcast } from "@/admin/pages/admin-broadcast"
 import { AdminUsers } from "@/admin/pages/admin-users"
 
 export default function App() {
@@ -21,8 +20,7 @@ export default function App() {
     <BrowserRouter>
       <Toaster position="top-center" richColors closeButton />
       <Routes>
-        {/* Public site — no login required. Shares PublicLayout so the
-            broadcast listener stays mounted across navigation between them. */}
+        {/* Public site — no login required. */}
         <Route element={<PublicLayout />}>
           <Route path="/" element={<HomePage />} />
           <Route path="/tournament/:id" element={<TournamentPage />} />
@@ -44,7 +42,6 @@ export default function App() {
           <Route path="matches" element={<AdminMatches />} />
           <Route path="scan" element={<AdminScan />} />
           <Route path="bracket" element={<AdminBracket />} />
-          <Route path="broadcast" element={<AdminBroadcast />} />
           <Route path="users" element={<AdminUsers />} />
         </Route>
 

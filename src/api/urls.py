@@ -44,7 +44,6 @@ urlpatterns = [
     path("games/<int:game_id>/result/", endpoints.api_game_result, name="api_game_result"),
     path("games/<int:game_id>/reject/", endpoints.api_reject_game, name="api_reject_game"),
     path("scan/", endpoints.api_scan_score, name="api_scan_score"),
-    path("broadcast/", endpoints.api_broadcast, name="api_broadcast"),
     path("users/", endpoints.api_users, name="api_users"),
     path("users/<int:user_id>/", endpoints.api_user_detail, name="api_user_detail"),
 ]

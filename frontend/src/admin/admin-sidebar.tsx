@@ -12,7 +12,6 @@ import {
   ArrowUpRight,
   LogOut,
   Gamepad2,
-  Radio,
   X,
 } from "lucide-react"
 
@@ -49,7 +48,6 @@ const navGroups: { label: string | null; items: NavItem[] }[] = [
       { to: "/admin/matches", label: "ผลการแข่งขัน", icon: Swords, end: false, roles: ["MONITOR"] },
       { to: "/admin/scan", label: "สแกนคะแนน", icon: Camera, end: false, roles: ["MONITOR", "FIELD_STAFF"] },
       { to: "/admin/bracket", label: "สายการแข่งขัน", icon: Network, end: false, roles: ["MONITOR", "FIELD_STAFF"] },
-      { to: "/admin/broadcast", label: "ประกาศสด", icon: Radio, end: false, roles: ["MONITOR"] },
     ],
   },
   {

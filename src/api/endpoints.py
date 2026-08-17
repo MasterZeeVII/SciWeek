@@ -19,7 +19,6 @@ from common.auth import require_role, require_user
 from common.models import Division, MatchGame, School, SystemUser, Team, TeamMember, Tournament
 from ocr import scan_score_image
 from service.bracket import division_has_bracket, generate_bracket, reset_division_bracket
-from service.broadcast import clear_broadcast, get_broadcast, parse_notify_command, push_broadcast
 from service.results import reject_scan, save_scan_result, set_game_result
 from service.tournament import activate_tournament, ensure_default_divisions, upsert_tournament
 
@@ -350,26 +349,6 @@ def api_scan_score(request):
             "state": state,
         }
     )
-
-
-@api_handler("GET", "POST", "DELETE")
-def api_broadcast(request):
-    # GET is public/no-auth — the public tournament page polls this to pick
-    # up an admin's /notify push, same as it already polls for verified
-    # games. Only pushing/clearing needs a role.
-    if request.method == "GET":
-        return JsonResponse({"broadcast": get_broadcast()})
-
-    require_role(request, SystemUser.Role.ADMIN, SystemUser.Role.MONITOR)
-
-    if request.method == "DELETE":
-        clear_broadcast()
-        return JsonResponse({"broadcast": None})
-
-    data = _json_body(request)
-    payload = parse_notify_command(data.get("command", ""))
-    record = push_broadcast(payload)
-    return JsonResponse({"broadcast": record})
 
 
 MIN_PASSWORD_LENGTH = 6

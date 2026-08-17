@@ -61,6 +61,7 @@ export interface TournamentSummary {
   id: string
   name: string
   year: number
+  season: number
   status: "Live" | "Past"
   teamCount: number
   champions: { level: DivisionLevel; team: string }[]
@@ -70,6 +71,7 @@ export interface TournamentDetail {
   id: string
   name: string
   year: number
+  season: number
   status: "Live" | "Past"
   teamCount: number
   playersPerTeam: number | null
@@ -97,7 +99,8 @@ async function get<T>(path: string): Promise<T> {
 export interface HallOfFameEntry {
   school: string
   titles: number
-  years: number[]
+  // Season labels, not raw years — "2026" for season 1, "2026 (#2)" beyond.
+  years: string[]
   everySeason: boolean
 }
 
@@ -117,37 +120,6 @@ export function fetchTournaments(): Promise<TournamentSummary[]> {
 
 export function fetchDashboardStats(): Promise<DashboardStats> {
   return get<DashboardStats>("/api/public/dashboard-stats/")
-}
-
-export interface AdminBroadcastRecord {
-  id: number
-  createdAt: string
-  payload: {
-    key: string
-    stageName: string
-    roundName: string
-    isThirdPlace: boolean
-    bestOf: number
-    gameNumber: number
-    team1: string
-    team2: string
-    kills1: number | null
-    kills2: number | null
-    winner: "team1" | "team2"
-    outcome: "advance" | "champion" | "third-place" | null
-    advanceRoundName: string | null
-    message: string | null
-  }
-}
-
-/** Latest thing an admin pushed with `/notify` from the broadcast console
- * (`admin/pages/admin-broadcast.tsx`), or null if nothing has been pushed
- * since the server started. Polled alongside the tournament detail while
- * a tournament is Live so it can be replayed as a MatchResultBroadcast. */
-export function fetchLatestBroadcast(): Promise<AdminBroadcastRecord | null> {
-  return get<{ broadcast: AdminBroadcastRecord | null }>("/api/broadcast/").then(
-    (data) => data.broadcast,
-  )
 }
 
 export async function fetchTournament(id: string): Promise<TournamentDetail> {
