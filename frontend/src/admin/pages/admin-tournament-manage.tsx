@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react"
 import { Link, useParams } from "react-router-dom"
 import { motion } from "motion/react"
 import {
-  ArrowLeft, ArrowDown, ArrowUp, CheckCircle2, Clock, Eye, Info, Network,
+  ArrowLeft, ArrowDown, ArrowUp, CheckCircle2, Clock, Eye, GripVertical, Info, Network,
   Power, RotateCcw, Shuffle, Swords, Trophy, Users, Play,
 } from "lucide-react"
 
@@ -30,6 +30,8 @@ export function AdminTournamentManage() {
   const [error, setError] = useState<string | null>(null)
   const [thirdPlace, setThirdPlace] = useState(true)
   const [busy, setBusy] = useState(false)
+  const [dragIndex, setDragIndex] = useState<number | null>(null)
+  const [dragOverIndex, setDragOverIndex] = useState<number | null>(null)
 
   const isActive = !!id && active?.id === id
 
@@ -65,6 +67,20 @@ export function AdminTournamentManage() {
     if (target < 0 || target >= next.length) return
     ;[next[index], next[target]] = [next[target], next[index]]
     reorderTeams(next)
+  }
+
+  const dropTeam = (index: number) => {
+    if (dragIndex === null || dragIndex === index) {
+      setDragIndex(null)
+      setDragOverIndex(null)
+      return
+    }
+    const next = [...teams]
+    const [moved] = next.splice(dragIndex, 1)
+    next.splice(index, 0, moved)
+    reorderTeams(next)
+    setDragIndex(null)
+    setDragOverIndex(null)
   }
 
   const handleGenerate = async (randomize: boolean) => {
@@ -351,39 +367,52 @@ export function AdminTournamentManage() {
                 {teams.length === 0 ? (
                   <p className="text-sm text-muted-foreground py-4">ยังไม่มีทีมในรุ่นนี้</p>
                 ) : (
-                  <div className="flex flex-col gap-1.5 max-h-96 overflow-y-auto pr-1">
-                    {teams.map((team, index) => (
-                      <div
-                        key={team.id}
-                        className={`flex items-center gap-2 px-3 py-2 rounded-lg border border-border text-sm
-                          ${index % 2 === 0 ? "bg-muted/40" : "bg-card"}`}
-                      >
-                        <span className="w-6 text-xs font-bold text-muted-foreground">{index + 1}</span>
-                        <span className="flex-1 truncate text-foreground">{team.name}</span>
-                        <span className="text-xs text-muted-foreground mr-1">
-                          คู่ที่ {Math.floor(index / 2) + 1}
-                        </span>
-                        <button
-                          type="button"
-                          onClick={() => moveTeam(index, -1)}
-                          disabled={index === 0}
-                          className="p-1 text-muted-foreground hover:text-foreground disabled:opacity-30"
-                          aria-label="เลื่อนขึ้น"
+                  <>
+                    <p className="text-xs text-muted-foreground mb-2">
+                      ลากด้วยไอคอน ⠿ เพื่อจัดลำดับคู่แข่งขัน — ทีมที่อยู่คู่กันจะเจอกันในรอบแรก
+                    </p>
+                    <div className="flex flex-col gap-1.5 max-h-96 overflow-y-auto pr-1">
+                      {teams.map((team, index) => (
+                        <div
+                          key={team.id}
+                          draggable
+                          onDragStart={() => setDragIndex(index)}
+                          onDragEnd={() => { setDragIndex(null); setDragOverIndex(null) }}
+                          onDragOver={(e) => { e.preventDefault(); if (dragIndex !== null) setDragOverIndex(index) }}
+                          onDrop={(e) => { e.preventDefault(); dropTeam(index) }}
+                          className={`flex items-center gap-2 px-3 py-2 rounded-lg border text-sm transition-colors
+                            ${index % 2 === 0 ? "bg-muted/40" : "bg-card"}
+                            ${dragIndex === index ? "opacity-40" : ""}
+                            ${dragOverIndex === index && dragIndex !== index ? "border-brand" : "border-border"}`}
                         >
-                          <ArrowUp className="w-3.5 h-3.5" />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => moveTeam(index, 1)}
-                          disabled={index === teams.length - 1}
-                          className="p-1 text-muted-foreground hover:text-foreground disabled:opacity-30"
-                          aria-label="เลื่อนลง"
-                        >
-                          <ArrowDown className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
-                    ))}
-                  </div>
+                          <GripVertical className="w-3.5 h-3.5 text-muted-foreground cursor-grab flex-shrink-0" />
+                          <span className="w-6 text-xs font-bold text-muted-foreground">{index + 1}</span>
+                          <span className="flex-1 truncate text-foreground">{team.name}</span>
+                          <span className="text-xs text-muted-foreground mr-1">
+                            คู่ที่ {Math.floor(index / 2) + 1}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => moveTeam(index, -1)}
+                            disabled={index === 0}
+                            className="p-1 text-muted-foreground hover:text-foreground disabled:opacity-30"
+                            aria-label="เลื่อนขึ้น"
+                          >
+                            <ArrowUp className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => moveTeam(index, 1)}
+                            disabled={index === teams.length - 1}
+                            className="p-1 text-muted-foreground hover:text-foreground disabled:opacity-30"
+                            aria-label="เลื่อนลง"
+                          >
+                            <ArrowDown className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </>
                 )}
               </div>
             </div>

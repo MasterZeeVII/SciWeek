@@ -5,6 +5,7 @@ import { Pencil, Plus, Search, Trash2, Users, X } from "lucide-react"
 import { useTournament } from "@/lib/tournament-context"
 import { schoolsApi } from "@/lib/schools-api"
 import type { Team, TeamMember } from "@/lib/tournament-types"
+import { SearchableSelect } from "@/components/ui/searchable-select"
 import { DivisionTabs } from "../division-tabs"
 
 const MAX_PLAYERS = 5
@@ -288,21 +289,31 @@ export function AdminParticipants() {
                       {schoolsError && (
                         <p className="text-xs text-lose mb-1.5">{schoolsError}</p>
                       )}
-                      <select
+                      <SearchableSelect
                         value={schoolChoice}
-                        onChange={(e) => setSchoolChoice(e.target.value)}
-                        className="w-full px-3 py-2.5 text-sm bg-background border border-border rounded-lg outline-none focus:ring-2 focus:ring-brand/30 focus:border-brand transition"
-                      >
-                        <option value="" disabled>
-                          -- เลือกโรงเรียน --
-                        </option>
-                        {schools.map((name) => (
-                          <option key={name} value={name}>
-                            {name}
-                          </option>
-                        ))}
-                        <option value={NEW_SCHOOL_VALUE}>+ เพิ่มโรงเรียนใหม่</option>
-                      </select>
+                        onChange={setSchoolChoice}
+                        options={schools.map((name) => ({ value: name, label: name }))}
+                        placeholder="-- เลือกโรงเรียน --"
+                        searchPlaceholder="ค้นหาโรงเรียน..."
+                        emptyLabel="ไม่พบโรงเรียนที่ค้นหา"
+                        renderValue={(v) =>
+                          v === NEW_SCHOOL_VALUE ? (newSchoolName.trim() || "โรงเรียนใหม่") : null
+                        }
+                        footer={(query, close) => (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setSchoolChoice(NEW_SCHOOL_VALUE)
+                              setNewSchoolName(query)
+                              close()
+                            }}
+                            className="w-full flex items-center gap-2 px-3 py-2.5 text-sm text-brand font-medium hover:bg-muted transition-colors"
+                          >
+                            <Plus className="w-3.5 h-3.5" />
+                            เพิ่มโรงเรียนใหม่{query ? `: "${query}"` : ""}
+                          </button>
+                        )}
+                      />
                       {isAddingNewSchool && (
                         <input
                           type="text"
