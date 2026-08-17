@@ -28,7 +28,7 @@ export function TournamentHeader({ tournament }: Props) {
           <div className="flex flex-wrap items-center gap-3 mt-1">
             <span className="flex items-center gap-1 text-sm text-muted-foreground font-medium">
               <Calendar className="w-3.5 h-3.5" />
-              {tournament.year}
+              {tournament.year}{tournament.season > 1 ? ` (ครั้งที่ ${tournament.season})` : ""}
             </span>
             <span className="flex items-center gap-1 text-sm text-muted-foreground font-medium">
               <MapPin className="w-3.5 h-3.5" />

@@ -349,7 +349,7 @@ def _public_standing(division):
 def public_tournaments_payload():
     """Season list for the public site — no auth, read-only."""
     items = []
-    for tournament in Tournament.objects.order_by("-year"):
+    for tournament in Tournament.objects.order_by("-year", "-season"):
         divisions = list(tournament.divisions.order_by("level"))
         team_count = 0
         champions = []
@@ -362,8 +362,9 @@ def public_tournaments_payload():
         items.append(
             {
                 "id": str(tournament.id),
-                "name": f"{tournament.name} {tournament.year}",
+                "name": tournament.display_name,
                 "year": tournament.year,
+                "season": tournament.season,
                 "status": "Live" if tournament.is_active else "Past",
                 "teamCount": team_count,
                 "champions": champions,
@@ -394,29 +395,39 @@ def dashboard_stats_payload():
     top_schools = [{"name": name, "wins": wins} for name, wins in win_counts.most_common(8)]
 
     # Championship history: which school won which division final in which
-    # year, across every season on record — this is what lets the "hall of
-    # fame" panel call out a school that has taken a title every year.
-    all_years = set()
-    years_by_school = {}
+    # season, across every season on record — this is what lets the "hall of
+    # fame" panel call out a school that has taken a title every season.
+    # Seasons are identified by the (year, season) pair, not the bare year —
+    # two events in the same year must count as two seasons, not collapse
+    # into one set entry.
+    all_seasons = set()
+    seasons_by_school = {}
     for tournament in Tournament.objects.prefetch_related("divisions__rounds__matches__games__team1__school",
                                                             "divisions__rounds__matches__games__team2__school"):
-        all_years.add(tournament.year)
+        season_key = (tournament.year, tournament.season)
+        all_seasons.add(season_key)
         for division in tournament.divisions.all():
             final = _final_match(division)
             champion = get_match_winner(final) if final else None
             if not champion:
                 continue
-            years_by_school.setdefault(champion.school.name, set()).add(tournament.year)
+            seasons_by_school.setdefault(champion.school.name, set()).add(season_key)
 
-    total_seasons = len(all_years)
+    def season_label(season_key):
+        """Same convention as Tournament.display_name: bare year for season 1,
+        "(#n)" suffix beyond — the frontend renders these strings verbatim."""
+        year, season = season_key
+        return str(year) if season <= 1 else f"{year} (#{season})"
+
+    total_seasons = len(all_seasons)
     hall_of_fame = [
         {
             "school": name,
-            "titles": len(years),
-            "years": sorted(years),
-            "everySeason": total_seasons > 0 and len(years) == total_seasons,
+            "titles": len(seasons),
+            "years": [season_label(key) for key in sorted(seasons)],
+            "everySeason": total_seasons > 0 and len(seasons) == total_seasons,
         }
-        for name, years in years_by_school.items()
+        for name, seasons in seasons_by_school.items()
     ]
     hall_of_fame.sort(key=lambda entry: (-entry["titles"], entry["school"]))
 
@@ -464,8 +475,9 @@ def public_tournament_payload(tournament):
     ]
     return {
         "id": str(tournament.id),
-        "name": f"{tournament.name} {tournament.year}",
+        "name": tournament.display_name,
         "year": tournament.year,
+        "season": tournament.season,
         "status": "Live" if tournament.is_active else "Past",
         "teamCount": len(participants),
         "playersPerTeam": _players_per_team(tournament),
@@ -501,8 +513,9 @@ def state_payload(request, division_id=None):
 
     payload["tournament"] = {
         "id": str(tournament.id),
-        "name": f"{tournament.name} {tournament.year}",
+        "name": tournament.display_name,
         "year": tournament.year,
+        "season": tournament.season,
         "status": (
             "in-progress"
             if selected_division and division_has_bracket(selected_division)

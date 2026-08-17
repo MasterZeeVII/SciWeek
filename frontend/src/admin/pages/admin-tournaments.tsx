@@ -16,7 +16,18 @@ export function AdminTournaments() {
   const [showCreate, setShowCreate] = useState(false)
   const [name, setName] = useState("NSRU E-Sport SCIWEEK")
   const [year, setYear] = useState(String(new Date().getFullYear()))
+  const [season, setSeason] = useState("1")
   const [busy, setBusy] = useState(false)
+
+  // Prefill the season field with the first unused number for the typed year
+  // so staff never have to guess (and never accidentally rename an existing
+  // season by reusing its number).
+  useEffect(() => {
+    const numericYear = Number(year)
+    if (!seasons || !Number.isFinite(numericYear)) return
+    const used = seasons.filter((t) => t.year === numericYear).map((t) => t.season)
+    setSeason(String(used.length > 0 ? Math.max(...used) + 1 : 1))
+  }, [year, seasons])
 
   const reload = useCallback(async () => {
     try {
@@ -33,7 +44,7 @@ export function AdminTournaments() {
     if (!name.trim() || busy) return
     setBusy(true)
     try {
-      await createTournament(name.trim(), Number(year) || undefined)
+      await createTournament(name.trim(), Number(year) || undefined, Number(season) || undefined)
       setShowCreate(false)
       await reload()
     } catch {
@@ -121,6 +132,18 @@ export function AdminTournaments() {
                   className="w-full px-3 py-2.5 text-sm bg-background border border-border rounded-lg outline-none focus:ring-2 focus:ring-brand/30 focus:border-brand transition"
                 />
               </div>
+              <div className="w-24">
+                <label className="block text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">
+                  ครั้งที่
+                </label>
+                <input
+                  type="number"
+                  min={1}
+                  value={season}
+                  onChange={(e) => setSeason(e.target.value)}
+                  className="w-full px-3 py-2.5 text-sm bg-background border border-border rounded-lg outline-none focus:ring-2 focus:ring-brand/30 focus:border-brand transition"
+                />
+              </div>
               <button
                 type="submit"
                 disabled={!name.trim() || busy}
@@ -130,7 +153,8 @@ export function AdminTournaments() {
               </button>
               <p className="w-full text-xs text-muted-foreground">
                 ฤดูกาลใหม่จะถูกเปิดใช้งานทันที และสร้างรุ่น ม.ต้น / ม.ปลาย ให้อัตโนมัติ
-                (ถ้าปีนั้นมีอยู่แล้วจะเป็นการเปลี่ยนชื่อและเปิดใช้งานแทน)
+                — จัดแข่งปีเดียวกันได้หลายครั้งโดยเพิ่มเลข "ครั้งที่"
+                (ถ้าปีและครั้งที่ตรงกับฤดูกาลที่มีอยู่แล้ว จะเป็นการเปลี่ยนชื่อและเปิดใช้งานฤดูกาลนั้นแทน)
               </p>
             </div>
           </motion.form>
@@ -158,9 +182,14 @@ export function AdminTournaments() {
                 className={`bg-card border rounded-xl p-5 ${isActive ? "border-brand/40 ring-1 ring-brand/20" : "border-border"}`}
               >
                 <div className="flex items-start gap-4">
-                  {/* Year badge */}
-                  <div className="w-14 h-14 rounded-xl bg-brand/10 flex items-center justify-center flex-shrink-0">
+                  {/* Year badge (season superscript when a year has 2+ events) */}
+                  <div className="relative w-14 h-14 rounded-xl bg-brand/10 flex items-center justify-center flex-shrink-0">
                     <span className="text-lg font-bold text-brand">{String(t.year).slice(-2)}</span>
+                    {t.season > 1 && (
+                      <span className="absolute -top-1.5 -right-1.5 min-w-5 h-5 px-1 rounded-full bg-brand text-brand-foreground text-[10px] font-bold flex items-center justify-center">
+                        #{t.season}
+                      </span>
+                    )}
                   </div>
 
                   {/* Info */}
@@ -174,7 +203,7 @@ export function AdminTournaments() {
                     <div className="flex flex-wrap items-center gap-4 mt-2">
                       <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
                         <Calendar className="w-3.5 h-3.5" />
-                        ปี {t.year}
+                        ปี {t.year}{t.season > 1 ? ` ครั้งที่ ${t.season}` : ""}
                       </span>
                       <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
                         <Users className="w-3.5 h-3.5" />

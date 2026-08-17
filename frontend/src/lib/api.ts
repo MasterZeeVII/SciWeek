@@ -6,6 +6,7 @@ export interface ApiState {
     id: string
     name: string
     year: number
+    season: number
     status: "setup" | "in-progress" | "completed"
   } | null
   divisions: DivisionSummary[]
@@ -76,10 +77,10 @@ export const api = {
   logout() {
     return request<{ ok: true }>("/api/logout/", { method: "POST" })
   },
-  createTournament(name: string, year?: number) {
+  createTournament(name: string, year?: number, season?: number) {
     return request<ApiState>("/api/tournaments/", {
       method: "POST",
-      body: JSON.stringify(year ? { name, year } : { name }),
+      body: JSON.stringify({ name, ...(year ? { year } : {}), ...(season ? { season } : {}) }),
     })
   },
   activateTournament(tournamentId: string | number) {

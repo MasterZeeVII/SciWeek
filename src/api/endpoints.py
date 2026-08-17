@@ -145,7 +145,10 @@ def api_create_tournament(request):
     if not name:
         raise ValidationError("Tournament name is required.")
     year = int(data.get("year") or date.today().year)
-    upsert_tournament(name, year)
+    season = int(data.get("season") or 1)
+    if season < 1:
+        raise ValidationError("Season must be 1 or greater.")
+    upsert_tournament(name, year, season)
     return JsonResponse(state_payload(request))
 
 

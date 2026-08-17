@@ -1,0 +1,152 @@
+SCIWEEK DEPLOYMENT / DATA-MIGRATION HANDOFF
+Written 2026-07-26. Context for whoever picks this up next.
+
+======================================================================
+WHAT THIS PROJECT IS
+======================================================================
+Django + React tournament bracket system for NSRU E-Sport SCIWEEK.
+Full architecture/conventions are documented in CLAUDE.md at repo root --
+read that first, it covers layout, schema rules (no Django migrations,
+sciweek.sql is schema source of truth), and API/frontend conventions.
+
+======================================================================
+DEPLOYMENT STATE (DONE)
+======================================================================
+- Target server: 192.168.1.37 (Linux/Ubuntu, Apache), domain www.zernite.net
+  via Cloudflare (Origin Cert installed, SSL/TLS mode should be "Full (strict)").
+- Backend: gunicorn behind Apache reverse proxy. Config files committed at:
+    deploy/sciweek.service       (systemd unit, binds 127.0.0.1:8001)
+    deploy/apache-sciweek.conf   (vhost: :80 redirects to :443, proxies
+                                  /api to gunicorn, serves /media directly,
+                                  serves frontend/dist as the SPA)
+- Frontend build required Node 22 via nvm (server's system Node/npm was too
+  old -- npm@latest itself needs Node 22+). `nvm install 22 && nvm alias
+  default 22` before `npm run build`.
+- MySQL/MariaDB lives on the SAME box (192.168.1.37) as the app now, so
+  .env should have DB_HOST=127.0.0.1, not the old LAN IP.
+
+======================================================================
+DATABASE STATE -- READ THIS CAREFULLY
+======================================================================
+- The live "sciweek" DB was accidentally DROPPED during setup (my mistake --
+  dropped it while gunicorn was still serving requests, should have stopped
+  the service first). It was rebuilt from schema.
+- The schema re-import was attempted TWICE via phpMyAdmin's SQL paste box,
+  which silently truncates large multi-statement scripts -- it got through
+  only the first few CREATE TABLE statements both times (schools,
+  tournaments, ... but not divisions/rounds/teams/etc). This produced
+  confusing "table doesn't exist" 500 errors.
+- LESSON: never use phpMyAdmin's SQL tab for multi-table schema imports on
+  this project. Always use the mysql CLI:
+    mysql -u root -p -e "DROP DATABASE sciweek; CREATE DATABASE sciweek CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci;"
+    mysql -u root -p sciweek < prepdata/sciweek.sql
+    mysql -u root -p sciweek -e "SHOW TABLES;"
+  Confirm all 11 tables exist (schools, tournaments, users, django_migrations,
+  django_session, divisions, rounds, teams, team_members, matches, match_games)
+  before doing anything else.
+- STATUS AS OF THIS HANDOFF: unconfirmed whether the CLI re-import has been
+  run yet / whether all 11 tables now exist. VERIFY THIS FIRST.
+- After schema exists, recreate an admin login (users table is empty):
+    cd /opt/sciweek && env/bin/python manage.py create_admin --username admin --password <...>
+
+Files:
+  prepdata/sciweek.sql             -- schema only, no data (repo's source of truth)
+  sciweek-backup.sql (repo root)   -- a REAL backup taken 2026-07-25 4:50pm from
+                                       phpMyAdmin, has actual password hashes and
+                                       session tokens. User said this was just
+                                       test data and does NOT need restoring.
+                                       Gitignored now (was not before -- fixed
+                                       in this session). Do not commit it.
+
+======================================================================
+HISTORICAL DATA MIGRATION (IN PROGRESS)
+======================================================================
+Goal: import 4 past years of SCIWEEK tournament data (originally run on
+Toornament.com, before this Django app existed) as historical season
+records on the new site.
+
+Source Toornament URLs (JS-rendered SPA -- plain WebFetch only returns an
+empty shell, need an actual browser / rendering tool to scrape):
+  2564 BE (2021 CE): https://play.toornament.com/en_GB/tournaments/4875144952448212992/
+  2565 BE (2022 CE): https://play.toornament.com/en_GB/tournaments/5920154387402342400/
+  2566 BE (2023 CE): https://play.toornament.com/en_GB/tournaments/7007340032918134784/
+  2567 BE (2024 CE): https://play.toornament.com/en_GB/tournaments/8083614506537877504/
+  (Thai Buddhist Era year - 543 = Gregorian year)
+
+User wants: full bracket + match results, AND participating schools/teams list.
+
+STEP 1 DONE -- participants only:
+  User manually extracted participant lists from Toornament into
+  participants.txt (repo root; raw, inconsistent formatting across years --
+  mixed "รร."/"ร.ร." prefixes, team counts encoded as "ทีมที่ N" or "(N)"
+  suffixes, one real typo "นครสวรรรค์"->"นครสวรรค์" that also exists as a
+  duplicate row in the live DB).
+
+  Parsed/cleaned/generated via scripts (not kept in repo, were scratch):
+  logic lived in a one-off Python parser that:
+    - strips ม.ต้น/ม.ปลาย prefix -> JUNIOR/SENIOR division
+    - normalizes รร./ร.ร. -> ร.ร. (ศกร. left alone, different institution type)
+    - extracts trailing "ทีมที่ N" / "(N)" as team_number, NOT part of name
+      (but "(บ้านหนองไม้แดง)" style parens with real text are correctly left
+      alone -- that's part of the actual school name, confirmed by user)
+    - fixed the นครสวรรรค์ typo
+    - confirmed with user: ร.ร.สตรีนครสวรรค์ and ร.ร.นครสวรรค์ are genuinely
+      different schools (not a typo despite high string similarity)
+    - confirmed with user: ร.ร.สวนกุหลาบวิทยาลัยฯ (2564/2565) and
+      ร.ร.สวนกุหลาบวิทยาลัย (จิรประวัติ) (2566) are genuinely different
+      campuses, kept as separate schools
+
+  Result: prepdata/import_participants.sql -- inserts 40 unique schools,
+  4 tournaments (years 2021/2022/2023/2024, name "NSRU E-Sport SCIWEEK",
+  is_active=0 so it won't disturb the current live season), 8 divisions
+  (JUNIOR+SENIOR per year), 98 team rows (school+division+team_number).
+  No team_members (no player names in source data). No matches/games yet.
+
+  Import is written with SET FOREIGN_KEY_CHECKS=0/1 wrapping and resolves
+  all FKs by name/year via subqueries + session vars (@tid/@jid/@sid), not
+  hardcoded IDs -- safe regardless of what auto-increment state the DB is
+  actually in. Schools insert is idempotent (skips existing names); the
+  tournaments/divisions/teams inserts are NOT idempotent -- check
+  `SELECT year FROM tournaments;` before re-running, or it'll fail on the
+  unique year constraint.
+
+  Run via CLI (not phpMyAdmin, see lesson above):
+    mysql -u root -p sciweek < prepdata/import_participants.sql
+  Then verify: SELECT COUNT(*) FROM schools;  -- should be 40
+  (User pasted a phpMyAdmin table view showing only 25 rows -- that's just
+  phpMyAdmin's default page size, not the real count. Use SELECT COUNT(*).)
+
+STEP 2 NOT STARTED -- bracket/match results:
+  Need to actually scrape the 4 Toornament pages (participants, standings,
+  bracket/match results with scores). Blocked in this session because:
+    - claude-in-chrome browser automation tools were not available
+      (ToolSearch found nothing for mcp__claude-in-chrome__*)
+    - plain WebFetch only sees the unrendered JS-app shell
+  Whoever picks this up needs either: browser automation (Playwright/
+  Selenium/claude-in-chrome), or Toornament's public API (unconfirmed
+  whether it works without auth for these specific public tournaments --
+  never actually tested), or the user manually exporting bracket data like
+  they did for participants.txt.
+
+  Once obtained, mapping plan (not yet built): each Toornament stage ->
+  Round rows per division (round_number/round_name/best_of), matches ->
+  Match rows (round_id, match_number, next_match_id for advancement,
+  status=COMPLETED since historical), results -> MatchGame rows (final
+  scores in kill_team1/kill_team2, no OCR/evidence fields since "it not
+  have photo" per user -- image_path etc. stay NULL). This bypasses the
+  app's normal bracket.generate_bracket() service entirely since these are
+  finished historical brackets being backfilled, not live brackets being
+  created -- direct SQL insert like import_participants.sql, same pattern
+  (FK resolution via subquery, not hardcoded IDs).
+
+======================================================================
+OTHER OPEN ITEMS FROM EARLIER IN THE SESSION (not urgent, not started)
+======================================================================
+- Lock down MySQL to localhost-only now that app+DB are on the same box
+  (check bind-address / firewall -- there may still be a LAN-open 3306
+  from when the DB was accessed remotely during local dev).
+- Set up cron'd mysqldump backups before the real event goes live.
+- OCR camera-scoring feature (requirements-ocr.txt) was deliberately
+  skipped during deployment -- install later if field staff need it.
+- End-to-end smoke test of the live site (login, create tournament,
+  generate bracket) has not been confirmed done since the DB rebuild.

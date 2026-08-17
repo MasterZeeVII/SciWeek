@@ -50,16 +50,31 @@ class SystemUser(models.Model):
 class Tournament(models.Model):
     id = models.AutoField(primary_key=True)
     name = models.CharField(max_length=100)
-    year = models.PositiveSmallIntegerField(unique=True)
+    year = models.PositiveSmallIntegerField()
+    season = models.PositiveSmallIntegerField(default=1)
     is_active = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         db_table = "tournaments"
-        ordering = ["-year"]
+        ordering = ["-year", "-season"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["year", "season"],
+                name="uq_year_season",
+            )
+        ]
+
+    @property
+    def display_name(self):
+        """Season 1 keeps the historical bare "<name> <year>" label so existing
+        seasons render exactly as before; only a second+ season in the same
+        year gets the disambiguating suffix."""
+        base = f"{self.name} {self.year}"
+        return base if self.season <= 1 else f"{base} (#{self.season})"
 
     def __str__(self):
-        return f"{self.name} {self.year}"
+        return self.display_name
 
 
 class Division(models.Model):

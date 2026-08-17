@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react"
 import { Link, useParams } from "react-router-dom"
 import { motion } from "motion/react"
 import {
-  ArrowLeft, ArrowDown, ArrowUp, CheckCircle2, Clock, Eye, Network,
+  ArrowLeft, ArrowDown, ArrowUp, CheckCircle2, Clock, Eye, Info, Network,
   Power, RotateCcw, Shuffle, Swords, Trophy, Users, Play,
 } from "lucide-react"
 
@@ -120,7 +120,9 @@ export function AdminTournamentManage() {
               {isActive ? "กำลังใช้งาน" : "ผ่านมาแล้ว"}
             </StatusPill>
           </div>
-          <p className="text-sm text-muted-foreground mt-1">ปี {detail.year}</p>
+          <p className="text-sm text-muted-foreground mt-1">
+            ปี {detail.year}{detail.season > 1 ? ` ครั้งที่ ${detail.season}` : ""}
+          </p>
         </div>
         <div className="flex items-center gap-2">
           {!isActive && (
@@ -288,7 +290,10 @@ export function AdminTournamentManage() {
                     </div>
 
                     {teams.length >= 4 && (
-                      <label className="flex items-center gap-2 text-sm text-foreground mb-4 cursor-pointer">
+                      <label
+                        className="flex items-center gap-2 text-sm text-foreground mb-4 cursor-pointer"
+                        title="เพิ่มนัดชิงอันดับ 3 ระหว่างทีมที่แพ้ในรอบรองชนะเลิศทั้งสองทีม หากไม่เลือก ทีมที่แพ้รอบรองฯ จะตกรอบทันทีโดยไม่มีนัดชิงอันดับ 3"
+                      >
                         <input
                           type="checkbox"
                           checked={thirdPlace}
@@ -296,6 +301,7 @@ export function AdminTournamentManage() {
                           className="w-4 h-4 accent-[var(--brand)]"
                         />
                         มีนัดชิงอันดับ 3
+                        <Info className="w-3.5 h-3.5 text-muted-foreground" />
                       </label>
                     )}
 

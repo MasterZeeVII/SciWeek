@@ -111,9 +111,12 @@ export function HomePage() {
                 >
                   {/* Card banner */}
                   <div className="relative h-20 overflow-hidden bg-gradient-to-r from-surface to-accent">
-                    {/* Year badge */}
-                    <div className="absolute top-3 left-3">
+                    {/* Year badge (season suffix when a year has 2+ events) */}
+                    <div className="absolute top-3 left-3 flex items-baseline gap-1">
                       <span className="text-2xl font-extrabold text-brand drop-shadow-sm">{t.year}</span>
+                      {t.season > 1 && (
+                        <span className="text-sm font-bold text-brand drop-shadow-sm">#{t.season}</span>
+                      )}
                     </div>
                     {/* Status badge */}
                     <div className="absolute top-3 right-3">
@@ -130,7 +133,7 @@ export function HomePage() {
                     <div className="mt-2 flex flex-col gap-1">
                       <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
                         <Calendar className="w-3.5 h-3.5 flex-shrink-0" />
-                        <span>ส.ค. {t.year}</span>
+                        <span>ส.ค. {t.year}{t.season > 1 ? ` (ครั้งที่ ${t.season})` : ""}</span>
                       </div>
                       <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
                         <MapPin className="w-3.5 h-3.5 flex-shrink-0" />

@@ -1,0 +1,210 @@
+TASK: allow more than one tournament per calendar year (e.g. 2026 #1 and 2026 #2)
+================================================================================
+Status: DESIGN APPROVED — ready to implement. Read CLAUDE.md at repo root first,
+especially "The database owns the schema" (there are NO Django migrations; the
+DB + sciweek.sql change first, models mirror it second, never run makemigrations).
+
+WHY (context for whoever picks this up)
+---------------------------------------
+Question raised in review: "can it create 2 tournaments in the same year?"
+Answer today: NO, and it fails silently rather than erroring. Two separate
+brackets in one year is a real scenario (a second, independent event in the
+same calendar year — different teams/schools, not a second stage of the same
+event, so modelling it as an extra Division or Round group is NOT appropriate).
+
+Current hard constraints, all three layers:
+  - sciweek.sql:67   `UNIQUE KEY \`uq_year\` (\`year\`)` on `tournaments`
+  - src/common/models.py:53  `year = models.PositiveSmallIntegerField(unique=True)`
+  - src/service/tournament.py:17-27  `upsert_tournament()` does
+    `Tournament.objects.get_or_create(year=year)` then overwrites `.name`.
+
+The silent-failure path: POST /api/tournaments/ with name "SCIWEEK #2", year
+2026 when a 2026 season already exists does NOT create a second tournament and
+does NOT error — it RENAMES the existing 2026 season and re-activates it. The
+admin UI even documents this behaviour in Thai at
+frontend/src/admin/pages/admin-tournaments.tsx:131-134. Losing the name of a
+live season by typing the wrong year is the actual bug here, so fixing this is
+worth doing even beyond the multi-season requirement.
+
+DESIGN
+------
+Add a `season` discriminator column to `tournaments`; identity becomes the pair
+(year, season). Existing rows backfill to season = 1. Do NOT drop `year` and do
+NOT encode the sequence into `name` — `year` is load-bearing for sorting, the
+season badges, and the dashboard "hall of fame" aggregates.
+
+Rejected alternative: bump the year (2026 -> 2027) for the second event. It
+breaks every year-derived display and the cross-season stats. Don't.
+
+STEP 1 — DATABASE (do this FIRST, before touching Python)
+---------------------------------------------------------
+Run against the live MySQL/MariaDB DB (DB_* in .env, defaults to 192.168.1.37):
+
+    ALTER TABLE `tournaments`
+      ADD COLUMN `season` smallint unsigned NOT NULL DEFAULT 1 AFTER `year`,
+      DROP INDEX `uq_year`,
+      ADD UNIQUE KEY `uq_year_season` (`year`,`season`);
+
+Existing rows pick up season = 1 from the DEFAULT — no separate backfill needed.
+Verify before/after with `SELECT id, name, year, season, is_active FROM tournaments;`
+
+Then hand-edit sciweek.sql (the checked-in source of truth) so lines 60-68 match:
+the new `season` column and `uq_year_season` replacing `uq_year`. Keep the file a
+valid phpMyAdmin-style dump — same formatting/quoting style as its neighbours.
+
+STEP 2 — MODEL (src/common/models.py:50-62)
+-------------------------------------------
+  - `year`: DROP `unique=True` (it is now only unique in combination).
+  - ADD `season = models.PositiveSmallIntegerField(default=1)`.
+  - Meta: add `constraints = [models.UniqueConstraint(fields=["year", "season"],
+    name="uq_year_season")]` to mirror the DB, and change
+    `ordering = ["-year"]` -> `ordering = ["-year", "-season"]`.
+  - `__str__`: `f"{self.name} {self.year}"` -> include season when > 1.
+    Reuse the display helper from step 4 rather than formatting inline.
+Do NOT run makemigrations. `manage.py check` should still pass.
+
+STEP 3 — SERVICE (src/service/tournament.py:17-27)
+--------------------------------------------------
+`upsert_tournament(name, year)` -> `upsert_tournament(name, year, season=1)`,
+with `get_or_create(year=year, season=season, defaults={"name": name})`.
+
+Keep it an upsert, just keyed on the pair — the UI's documented "same season
+again = rename + reactivate" behaviour stays true, it is simply no longer
+triggered by an unrelated second event in the same year.
+
+ALSO ADD `next_season_for_year(year)` returning
+`(max season for that year) + 1`, or 1 if the year is unused. The frontend needs
+this to prefill the field so staff never have to guess an unused number (see
+step 6). Put it in this module next to upsert_tournament.
+
+STEP 4 — SERIALIZERS (src/api/serializers.py)
+---------------------------------------------
+The display name `f"{tournament.name} {tournament.year}"` is duplicated at THREE
+call sites — do not add a fourth copy of the format string:
+    - :365  public_tournaments_payload()   (public season list)
+    - :467  public_tournament_payload()    (public season detail)
+    - :504  state_payload()                (every admin mutation response)
+
+Add ONE module-level helper, e.g.:
+
+    def tournament_display_name(tournament):
+        """Season 1 keeps the historical bare "<name> <year>" label so existing
+        seasons render exactly as before; only a second+ season in the same year
+        gets the disambiguating suffix."""
+        base = f"{tournament.name} {tournament.year}"
+        return base if tournament.season <= 1 else f"{base} (#{tournament.season})"
+
+Point all three sites at it. Also add `"season": tournament.season` to all three
+payloads next to the existing `"year"` key (frontend needs it for badges).
+
+Ordering: `Tournament.objects.order_by("-year")` at :352 ->
+`order_by("-year", "-season")` so the newest season of a year sorts first.
+
+dashboard_stats_payload() (:375-429) — CAREFUL, this one has real logic to fix.
+It treats the YEAR as the season identity:
+    - `all_years` (:399, :403) and `total_seasons = len(all_years)` (:411)
+    - `years_by_school` (:400, :409) and the per-school `len(years)` title count
+    - `"everySeason": total_seasons > 0 and len(years) == total_seasons` (:417)
+With two tournaments in 2026, a set of years silently collapses them into one,
+so `totalSeasons` undercounts and a school that won both 2026 events is credited
+with a single title. Change the set/dict keys from `tournament.year` to the
+`(year, season)` tuple, keep `len()` for the counts, and when emitting
+`"years": sorted(years)` (:416) map the tuples back to display strings via the
+same helper convention as step 4 (e.g. "2026" / "2026 (#2)") — the frontend
+renders that array verbatim with `.join(", ")` at
+frontend/src/admin/pages/admin-dashboard.tsx:227, so a tuple leaking into JSON
+would render as garbage. Update the HallOfFameEntry type accordingly (step 6).
+
+STEP 5 — API (src/api/endpoints.py:143-159)
+-------------------------------------------
+`api_create_tournament`: after the existing year parse at :148, read
+`season = int(data.get("season") or 1)` and pass it through to
+upsert_tournament. Validate `season >= 1` and raise ValidationError otherwise
+(the api_handler decorator already maps ValidationError -> 400).
+
+Expose next_season_for_year — simplest is to include a `nextSeason` hint in the
+existing GET the tournaments page already makes, rather than adding a new
+endpoint; check what admin-tournaments.tsx actually fetches for its season list
+before deciding. ADMIN-only either way, matching the surrounding handlers.
+
+api_activate_tournament (:153-159) works on tournament_id and needs NO change.
+
+STEP 6 — FRONTEND
+-----------------
+  - frontend/src/lib/api.ts
+      :8    ApiState tournament type — add `season: number`
+      :79-82 `createTournament(name, year?)` -> add a `season?` param and send it
+      Also frontend/src/lib/tournament-context.tsx:73 and :282-284 (the context
+      wrapper mirrors the same signature).
+  - frontend/src/lib/public-api.ts
+      :60-67 TournamentSummary and :69-79 TournamentDetail — add `season: number`
+      :97-102 HallOfFameEntry — `years: number[]` becomes `string[]` per step 4.
+  - frontend/src/admin/pages/admin-tournaments.tsx
+      :18   add a `season` state alongside `year`, prefilled from the nextSeason
+            hint (and re-prefilled when the typed year changes)
+      :113-123 add a small season number input next to the existing year input
+      :36   pass season into createTournament
+      :131-134 UPDATE the Thai helper text — it currently promises rename-on-
+            duplicate-year, which after this change only applies to a duplicate
+            (year, season) pair. It is the main thing a reviewer will read.
+      :163  the year badge renders `String(t.year).slice(-2)` in a 14x14 box —
+            needs to show the season for a 2nd+ season (small superscript, or a
+            separate pill) or the two 2026 cards look identical at a glance.
+      :177  `ปี {t.year}` — same disambiguation needed.
+  - frontend/src/pages/home-page.tsx:114-133 (public season cards, year badge
+    and the "ส.ค. {t.year}" line) and
+    frontend/src/components/public/tournament-header.tsx:31 — same treatment.
+    Public routing is already by tournament id, so no route changes.
+  - frontend/src/admin/pages/admin-tournament-manage.tsx:123 (`ปี {detail.year}`)
+    — same.
+Type-check with `npm.cmd --prefix frontend run build` (it runs tsc --noEmit first);
+the added required fields on the shared interfaces will surface any site missed.
+
+STEP 7 — HISTORICAL IMPORT SCRIPTS (untracked prepdata/, low priority)
+----------------------------------------------------------------------
+These resolve a tournament by year alone and become ambiguous once a year has
+two seasons (MySQL returns an arbitrary row for a bare scalar subquery):
+    prepdata/import_matches_2564.sql:9   (year = 2021)
+    prepdata/import_matches_2565.sql:9   (year = 2022)
+    prepdata/import_matches_2566.sql:9   (year = 2023)
+    prepdata/import_matches_2567.sql:9   (year = 2024)
+    prepdata/build_match_import.py:284   (the generator for the above)
+    prepdata/import_participants.sql:53,82,109,152 (INSERT ... (name, year, is_active))
+Add `AND season = 1` to the SELECTs and an explicit season to the INSERTs. These
+are one-shot backfills for 2021-2024 that have already run, so this is hygiene
+for re-runs, not a blocker — but fix build_match_import.py so regenerated files
+are correct.
+
+VERIFICATION (do all of these before calling it done)
+------------------------------------------------------
+ 1. `.\env\Scripts\python.exe manage.py check` passes.
+ 2. `npm.cmd --prefix frontend run build` passes (type-check included).
+ 3. Create a second 2026 season through the admin UI. Confirm a NEW row appears
+    (`SELECT id, name, year, season FROM tournaments WHERE year = 2026;` returns
+    two rows) and that the FIRST season's name is unchanged — that no-clobber
+    check is the actual point of this task.
+ 4. Confirm the new season activated and the old one deactivated (exactly one
+    `is_active = 1` across the whole table — activate_tournament's invariant,
+    src/service/tournament.py:6-9).
+ 5. Generate a bracket in the second season and confirm it is independent of the
+    first season's bracket (divisions/rounds/matches hang off tournament_id, so
+    this should follow for free — verify, don't assume).
+ 6. Re-activate the FIRST 2026 season via its card and confirm the admin state
+    payload switches to it (POST /api/tournaments/<id>/activate/ is by id and is
+    the regression-prone path if any lookup was left keyed on year).
+ 7. Public site: both 2026 seasons listed as separate cards with distinguishable
+    labels/badges, each /tournament/:id showing its own bracket.
+ 8. Admin dashboard: totalSeasons counts both 2026 events, and the hall-of-fame
+    "years" strings render readably (no "[object Object]" / raw tuples).
+
+NOTES / GOTCHAS
+---------------
+ - One `is_active` tournament at a time remains the rule — this task adds a
+   second season per year, NOT two simultaneously live tournaments. Do not touch
+   activate_tournament's exclude+deactivate logic.
+ - state_payload() (:478-511) reads `Tournament.objects.filter(is_active=True)`
+   — unaffected, but re-read it if you change anything about activation.
+ - Season 1 must render byte-identically to today (bare "<name> <year>") so the
+   existing 2021-2025 seasons and any screenshots/paper figures don't shift.
+ - The Thai paper in paper/ is unrelated to the running app — do not touch it as
+   part of this task.

@@ -70,7 +70,7 @@ interface TournamentContextType {
   login: (username: string, password: string) => Promise<void>
   logout: () => Promise<void>
   selectDivision: (divisionId: number) => Promise<void>
-  createTournament: (name: string, year?: number) => Promise<void>
+  createTournament: (name: string, year?: number, season?: number) => Promise<void>
   activateTournament: (tournamentId: string | number) => Promise<void>
   addTeam: (team: Omit<Team, "id" | "seed">) => Promise<void>
   updateTeam: (id: string, team: Partial<Omit<Team, "id">>) => Promise<void>
@@ -279,9 +279,9 @@ export function TournamentProvider({ children }: { children: ReactNode }) {
   )
 
   const createTournament = useCallback(
-    async (name: string, year?: number) => {
+    async (name: string, year?: number, season?: number) => {
       try {
-        applyState(await api.createTournament(name, year))
+        applyState(await api.createTournament(name, year, season))
       } catch (err) {
         setError(err instanceof Error ? err.message : "Cannot create tournament.")
         throw err

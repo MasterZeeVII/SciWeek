@@ -592,7 +592,7 @@ def fig_all_children():
 # Fig 3.4 ER Diagram
 # ----------------------------------------------------------------------------
 ENTITIES = {
-    "tournaments": ["PK  id", "     name", "     year", "     is_active", "     created_at"],
+    "tournaments": ["PK  id", "     name", "     year", "     season", "     is_active", "     created_at"],
     "divisions": ["PK  id", "FK  tournament_id", "     level", "     max_teams", "     default_best_of"],
     "rounds": ["PK  id", "FK  division_id", "     round_number", "     round_name", "     best_of"],
     "matches": ["PK  id", "FK  round_id", "     match_number", "FK  next_match_id", "     status", "     scheduled_time"],

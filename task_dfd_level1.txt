@@ -1,0 +1,69 @@
+Task: Add missing DFD diagrams to Chapter 3
+============================================
+
+What was wrong before
+----------------------
+You gave me 24 photos of your advisor's example thesis (a different
+project, an online bookstore). Comparing it to your Chapter 3, I found
+your DFD diagrams were missing one whole layer of detail.
+
+The advisor's example has 3 levels of DFD:
+  1. Context Diagram   - the whole system as ONE box
+  2. Diagram 0          - the system split into main processes (1, 2, 3...)
+  3. DFD Level 1        - EACH main process split again into its own
+                           small steps (1.1, 1.2, 1.3...)
+
+Your paper only had levels 1 and 2. Level 3 (splitting each of your 7
+main processes into their small steps) did not exist at all. That is
+the "lacking" you were feeling.
+
+What changed
+------------
+I added the missing level. Your system has 7 main processes (from your
+Functional Decomposition Diagram), so I created 7 new diagrams, one for
+each:
+
+  fig_3_4  -> Process 1: User accounts and roles
+  fig_3_5  -> Process 2: Yearly tournament setup
+  fig_3_6  -> Process 3: Team management
+  fig_3_7  -> Process 4: Bracket generation
+  fig_3_8  -> Process 5: Score recording with OCR
+  fig_3_9  -> Process 6: Verify and confirm results
+  fig_3_10 -> Process 7: Public results display
+
+Each diagram shows the small steps inside that process (like 4.1, 4.2,
+4.3, 4.4 for bracket generation), and which database table each step
+reads or writes. I did not make this up - I read your actual backend
+code (src/service/ and src/api/endpoints.py) to find the real steps and
+real database tables for each one.
+
+Because 7 new diagrams were inserted before your ER Diagram, the ER
+Diagram's figure number moved from "ภาพที่ 3.4" to "ภาพที่ 3.11". The
+Data Dictionary table numbers (ตารางที่ 3.2-3.10) did not change, they
+are a separate numbering.
+
+Files touched:
+  paper/make_diagrams.py     - added the code that draws the 7 new diagrams
+  paper/build_chapter3.py    - added a new section 3.1.5 with the 7 diagrams,
+                                 fixed the ER Diagram figure number
+
+Both scripts were re-run, so paper/diagrams/*.png and
+paper/บทที่3_การวิเคราะห์และออกแบบระบบ.docx are already up to date.
+
+What's still left to do
+------------------------
+1. Data Dictionary format is simpler than your advisor's example.
+   Your advisor's version has 7 columns per table (including
+   "Default Value" and "Constraints"). Yours has 5 columns. Not fixed
+   yet - your call whether this matters for your advisor.
+
+2. Your advisor's example also had a UI/screen-design section
+   (mockup screenshots with labels) later in their document. You do
+   not have this yet. Not started.
+
+Small side note
+----------------
+Your reference photos were .HEIC files (iPhone photo format), which I
+could not open directly. I installed a small tool (pillow-heif) and
+converted all 24 to normal .png files in ref/docvol3/, so they are easy
+to open now.
