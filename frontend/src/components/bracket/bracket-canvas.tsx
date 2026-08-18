@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useRef, useCallback, useEffect, useMemo, type ReactNode } from "react"
-import { Maximize, Minimize, RotateCcw, ZoomIn, ZoomOut } from "lucide-react"
+import { Maximize, Minimize, RotateCcw, Users, X, ZoomIn, ZoomOut } from "lucide-react"
 import { cn } from "@/lib/utils"
 import type { Team, Match } from "@/lib/tournament-types"
 import { RollingNumber } from "@/components/ui/rolling-number"
@@ -94,6 +94,8 @@ export interface BracketLabels {
   subtitle: (teamCount: number) => string
   dragHint: string
   trackTeam: string
+  showTeams: string
+  hideTeams: string
   champion: string
   roundName: (round: number, totalRounds: number) => string
   thirdPlace: string
@@ -103,6 +105,8 @@ export const DEFAULT_BRACKET_LABELS: BracketLabels = {
   subtitle: (teamCount) => `${teamCount} Teams - Single Elimination`,
   dragHint: "Drag to pan",
   trackTeam: "Track Team",
+  showTeams: "Show team list",
+  hideTeams: "Hide team list",
   champion: "Champion",
   roundName: (round, totalRounds) => {
     if (totalRounds && round === totalRounds) return "Final"
@@ -408,6 +412,7 @@ export function BracketCanvas({
   const [panStart, setPanStart] = useState({ x: 0, y: 0 })
   const [view, setView] = useState(HOME_VIEW)
   const [isFullscreen, setIsFullscreen] = useState(false)
+  const [showTeamPanel, setShowTeamPanel] = useState(true)
   const lastTouchRef = useRef<{ x: number; y: number } | null>(null)
   const pinchRef = useRef<{
     dist: number
@@ -608,12 +613,37 @@ export function BracketCanvas({
     return () => el.removeEventListener("wheel", onWheel)
   }, [zoomAt])
 
-  // Fullscreen — the projector/monitor "verify wall" mode.
+  // Scale + center the whole bracket to fill whatever space is available —
+  // used by the reset button and automatically when entering fullscreen, so
+  // a 16-team bracket actually reads from the back of the room on a
+  // projector instead of sitting at a fixed 100% in a corner of a much
+  // bigger screen.
+  const fitToScreen = useCallback(() => {
+    const rect = containerRef.current?.getBoundingClientRect()
+    if (!rect || canvasWidth === 0 || canvasHeight === 0) return HOME_VIEW
+    const sidePadding = 32
+    const topClearance = 96 // clears the sticky header (+ mobile team strip)
+    const scaleX = (rect.width - sidePadding * 2) / canvasWidth
+    const scaleY = (rect.height - topClearance - sidePadding) / canvasHeight
+    const zoom = clampZoom(Math.min(scaleX, scaleY))
+    const x = (rect.width - canvasWidth * zoom) / 2
+    const y = topClearance + Math.max(0, (rect.height - topClearance - canvasHeight * zoom) / 2)
+    return { x, y, zoom }
+  }, [canvasWidth, canvasHeight])
+
+  // Fullscreen — the projector/monitor "verify wall" mode. Auto-fit once the
+  // element has actually resized to fill the screen.
   useEffect(() => {
-    const onChange = () => setIsFullscreen(!!document.fullscreenElement)
+    const onChange = () => {
+      const nowFullscreen = !!document.fullscreenElement
+      setIsFullscreen(nowFullscreen)
+      if (nowFullscreen) {
+        requestAnimationFrame(() => setView(fitToScreen()))
+      }
+    }
     document.addEventListener("fullscreenchange", onChange)
     return () => document.removeEventListener("fullscreenchange", onChange)
-  }, [])
+  }, [fitToScreen])
 
   const toggleFullscreen = useCallback(() => {
     if (document.fullscreenElement) {
@@ -661,44 +691,68 @@ export function BracketCanvas({
       </header>
 
       {/* Team selector - desktop */}
-      <div className="absolute right-6 top-20 z-10 hidden max-h-[calc(100vh-120px)] flex-col gap-1.5 overflow-y-auto sm:flex">
-        <span className="mb-1 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
-          {labels.trackTeam}
-        </span>
-        {teams.map((team) => (
-          <button
-            key={team.id}
-            onClick={() => handleTeamSelect(team.id)}
-            className={cn(
-              "rounded-sm border px-3 py-1.5 text-left text-xs font-medium shadow-sm transition-all",
-              selectedTeam === team.id
-                ? "border-primary bg-primary/10 text-primary"
-                : "border-border bg-card text-secondary-foreground hover:border-primary/50 hover:text-foreground"
-            )}
-          >
-            <span className="mr-2 text-[10px] text-muted-foreground">#{team.seed}</span>
-            {team.name}
-          </button>
-        ))}
-      </div>
+      {showTeamPanel && (
+        <div className="absolute right-6 top-20 z-10 hidden max-h-[calc(100vh-120px)] flex-col gap-1.5 overflow-y-auto sm:flex">
+          <div className="mb-1 flex items-center justify-between gap-3">
+            <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+              {labels.trackTeam}
+            </span>
+            <button
+              type="button"
+              onClick={() => setShowTeamPanel(false)}
+              aria-label={labels.hideTeams}
+              title={labels.hideTeams}
+              className="rounded p-0.5 text-muted-foreground hover:text-foreground"
+            >
+              <X className="h-3 w-3" />
+            </button>
+          </div>
+          {teams.map((team) => (
+            <button
+              key={team.id}
+              onClick={() => handleTeamSelect(team.id)}
+              className={cn(
+                "rounded-sm border px-3 py-1.5 text-left text-xs font-medium shadow-sm transition-all",
+                selectedTeam === team.id
+                  ? "border-primary bg-primary/10 text-primary"
+                  : "border-border bg-card text-secondary-foreground hover:border-primary/50 hover:text-foreground"
+              )}
+            >
+              <span className="mr-2 text-[10px] text-muted-foreground">#{team.seed}</span>
+              {team.name}
+            </button>
+          ))}
+        </div>
+      )}
 
       {/* Team selector - mobile */}
-      <div className="absolute inset-x-0 top-16 z-10 flex gap-2 overflow-x-auto px-4 py-2 sm:hidden">
-        {teams.map((team) => (
+      {showTeamPanel && (
+        <div className="absolute inset-x-0 top-16 z-10 flex items-center gap-2 overflow-x-auto px-4 py-2 sm:hidden">
           <button
-            key={team.id}
-            onClick={() => handleTeamSelect(team.id)}
-            className={cn(
-              "shrink-0 rounded-sm border px-2.5 py-1 text-xs font-medium transition-all",
-              selectedTeam === team.id
-                ? "border-primary bg-primary/10 text-primary"
-                : "border-border bg-card text-secondary-foreground"
-            )}
+            type="button"
+            onClick={() => setShowTeamPanel(false)}
+            aria-label={labels.hideTeams}
+            title={labels.hideTeams}
+            className="shrink-0 rounded p-1 text-muted-foreground hover:text-foreground"
           >
-            {team.name}
+            <X className="h-3.5 w-3.5" />
           </button>
-        ))}
-      </div>
+          {teams.map((team) => (
+            <button
+              key={team.id}
+              onClick={() => handleTeamSelect(team.id)}
+              className={cn(
+                "shrink-0 rounded-sm border px-2.5 py-1 text-xs font-medium transition-all",
+                selectedTeam === team.id
+                  ? "border-primary bg-primary/10 text-primary"
+                  : "border-border bg-card text-secondary-foreground"
+              )}
+            >
+              {team.name}
+            </button>
+          ))}
+        </div>
+      )}
 
       {/* Pannable canvas */}
       <div
@@ -827,9 +881,9 @@ export function BracketCanvas({
         <div className="mx-0.5 h-5 w-px bg-border" />
         <button
           type="button"
-          onClick={() => setView(HOME_VIEW)}
-          aria-label="รีเซ็ตมุมมอง"
-          title="รีเซ็ตมุมมอง"
+          onClick={() => setView(fitToScreen())}
+          aria-label="พอดีหน้าจอ"
+          title="พอดีหน้าจอ"
           className="p-2 rounded-md text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
         >
           <RotateCcw className="h-4 w-4" />
@@ -842,6 +896,22 @@ export function BracketCanvas({
           className="p-2 rounded-md text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
         >
           {isFullscreen ? <Minimize className="h-4 w-4" /> : <Maximize className="h-4 w-4" />}
+        </button>
+        <div className="mx-0.5 h-5 w-px bg-border" />
+        <button
+          type="button"
+          onClick={() => setShowTeamPanel((current) => !current)}
+          aria-pressed={showTeamPanel}
+          aria-label={showTeamPanel ? labels.hideTeams : labels.showTeams}
+          title={showTeamPanel ? labels.hideTeams : labels.showTeams}
+          className={cn(
+            "p-2 rounded-md transition-colors",
+            showTeamPanel
+              ? "text-foreground bg-muted"
+              : "text-muted-foreground hover:bg-muted hover:text-foreground"
+          )}
+        >
+          <Users className="h-4 w-4" />
         </button>
       </div>
 

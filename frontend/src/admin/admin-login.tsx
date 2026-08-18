@@ -1,7 +1,7 @@
 import { useState } from "react"
 import { Link } from "react-router-dom"
 import { motion } from "motion/react"
-import { ArrowLeft, Gamepad2, Lock, User } from "lucide-react"
+import { ArrowLeft, Lock, User } from "lucide-react"
 
 import { useTournament } from "@/lib/tournament-context"
 
@@ -33,9 +33,11 @@ export function AdminLogin() {
         <div className="bg-card border border-border rounded-xl shadow-sm overflow-hidden">
           {/* Header */}
           <div className="px-6 pt-8 pb-6 text-center border-b border-border">
-            <div className="mx-auto mb-4 w-14 h-14 rounded-xl bg-brand flex items-center justify-center shadow-md">
-              <Gamepad2 className="w-7 h-7 text-white" />
-            </div>
+            <img
+              src="/logo-scitec-icon.png"
+              alt="SCITEC NSRU"
+              className="mx-auto mb-4 w-14 h-14 object-contain"
+            />
             <h1 className="text-xl font-bold text-foreground">NSRU E-Sport</h1>
             <p className="text-sm text-muted-foreground mt-0.5">
               เข้าสู่ระบบสำหรับเจ้าหน้าที่

@@ -20,6 +20,8 @@ const THAI_LABELS: Partial<BracketLabels> = {
   subtitle: (teamCount) => `${teamCount} ทีม — แพ้คัดออก`,
   dragHint: "ลากเพื่อเลื่อนดู",
   trackTeam: "ติดตามทีม",
+  showTeams: "แสดงรายชื่อทีม",
+  hideTeams: "ซ่อนรายชื่อทีม",
   champion: "แชมป์เปี้ยน",
   thirdPlace: "ชิงอันดับ 3",
   roundName: (round, totalRounds) => {

@@ -1,5 +1,5 @@
 import { Link } from "react-router-dom"
-import { Gamepad2, LogIn } from "lucide-react"
+import { LogIn } from "lucide-react"
 import { SITE } from "@/lib/site-config"
 
 type Props = {
@@ -14,9 +14,11 @@ export function SiteTopbar({ crumb }: Props) {
     <header className="bg-card border-b border-border">
       <div className="max-w-6xl mx-auto flex items-center justify-between px-4 md:px-8 py-3 gap-4">
         <Link to="/" className="flex items-center gap-2.5 min-w-0 group">
-          <div className="w-8 h-8 rounded-lg bg-brand flex items-center justify-center flex-shrink-0">
-            <Gamepad2 className="w-4 h-4 text-white" />
-          </div>
+          <img
+            src="/logo-scitec-icon.png"
+            alt="SCITEC NSRU"
+            className="w-9 h-9 object-contain flex-shrink-0"
+          />
           <div className="min-w-0 leading-tight">
             <p className="text-[10px] font-semibold tracking-widest uppercase text-brand">
               {SITE.seriesName}

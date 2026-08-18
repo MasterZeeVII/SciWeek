@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react"
 import { Link } from "react-router-dom"
 import { motion } from "motion/react"
-import { Calendar, Users, MapPin, Trophy, ChevronRight, Gamepad2 } from "lucide-react"
+import { Calendar, Users, MapPin, Trophy, ChevronRight } from "lucide-react"
 import { fetchTournaments, LEVEL_LABEL, type TournamentSummary } from "@/lib/public-api"
 import { SITE } from "@/lib/site-config"
 import { StatusPill } from "@/components/ui/status-pill"
@@ -45,9 +45,11 @@ export function HomePage() {
           transition={{ duration: 0.55, ease: "easeOut" }}
           className="max-w-5xl mx-auto flex items-center px-4 md:px-8 py-8 gap-5"
         >
-          <div className="w-16 h-16 rounded-xl bg-brand flex items-center justify-center shadow-lg flex-shrink-0">
-            <Gamepad2 className="w-8 h-8 text-white" />
-          </div>
+          <img
+            src="/logo-scitec-icon.png"
+            alt="SCITEC NSRU"
+            className="w-16 h-16 object-contain flex-shrink-0"
+          />
           <div className="min-w-0 flex-1">
             <p className="text-xs font-semibold tracking-widest uppercase text-brand mb-1">
               {SITE.seriesName}
