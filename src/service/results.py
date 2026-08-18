@@ -152,6 +152,19 @@ def set_game_result(
             game.verified_by = None
             game.verified_at = None
             game.reject_reason = None
+            # A full clear (the "ล้างผลเกมนี้" button) is the one path meant
+            # to wipe a game back to a truly blank slate — unlike
+            # reject_scan(), which keeps the evidence photo on purpose so a
+            # misread OCR result can be corrected. Without this, a cleared
+            # game kept showing its old scan reading and photo forever
+            # (get_scan_scores()/getScanInfo() read raw_ocr_json directly,
+            # independent of ocr_status), which made re-testing a scan on
+            # the same game look like clearing had silently failed.
+            if team1_score is None and team2_score is None:
+                game.raw_ocr_json = None
+                game.image_path = None
+                game.uploaded_by = None
+                game.uploaded_at = None
         else:
             if winner_team_id not in (game.team1_id, game.team2_id):
                 raise ValidationError("Winner must be one of the two teams.")
@@ -176,6 +189,10 @@ def set_game_result(
                 "verified_by",
                 "verified_at",
                 "reject_reason",
+                "raw_ocr_json",
+                "image_path",
+                "uploaded_by",
+                "uploaded_at",
             ]
         )
 
