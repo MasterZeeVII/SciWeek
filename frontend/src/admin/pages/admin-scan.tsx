@@ -3,7 +3,7 @@ import { useLocation, useNavigate } from "react-router-dom"
 import { motion } from "motion/react"
 import {
   ArrowLeft, Camera, CheckCircle2, CloudUpload, ImageUp, Loader2, RefreshCcw, RotateCcw,
-  RotateCw, ScanLine, ScanText, Swords, Trophy, UploadCloud,
+  RotateCw, ScanLine, ScanText, Swords, Trophy, UploadCloud, ZoomIn, ZoomOut,
 } from "lucide-react"
 
 import type { ScoreRoi } from "@/lib/api"
@@ -119,6 +119,16 @@ export function AdminScan() {
   const [backupStatus, setBackupStatus] = useState<BackupStatus>("idle")
   const [winRoi, setWinRoi] = useState<ScoreRoi>(INITIAL_WIN_ROI)
   const [loseRoi, setLoseRoi] = useState<ScoreRoi>(INITIAL_LOSE_ROI)
+  // Zoom on the score-ROI step only — the boxes default to a small slice of
+  // the photo, and on a phone screen (e.g. iPhone 13) that's a few dozen
+  // CSS px, too small to drag precisely. Plain width scaling + native
+  // scroll, not a canvas magnifier, so it stays instant with no extra
+  // processing.
+  const [roiZoom, setRoiZoom] = useState(1)
+  const ROI_ZOOM_MIN = 1
+  const ROI_ZOOM_MAX = 3
+  const zoomRoiIn = () => setRoiZoom((z) => Math.min(ROI_ZOOM_MAX, Math.round((z + 0.5) * 10) / 10))
+  const zoomRoiOut = () => setRoiZoom((z) => Math.max(ROI_ZOOM_MIN, Math.round((z - 0.5) * 10) / 10))
   const [busy, setBusy] = useState(false)
   // Two-phase feedback while the single scan request runs: the upload is
   // quick, the OCR read is the long part — showing which phase we're in
@@ -146,6 +156,7 @@ export function AdminScan() {
       // accidentally scans with boxes over the wrong spot.
       setWinRoi(INITIAL_WIN_ROI)
       setLoseRoi(INITIAL_LOSE_ROI)
+      setRoiZoom(1)
       setBackupStatus("idle")
     } catch {
       setError("หมุนภาพไม่สำเร็จ")
@@ -183,6 +194,7 @@ export function AdminScan() {
     setError(null)
     setEvidencePath(null)
     setBackupStatus("idle")
+    setRoiZoom(1)
   }
 
   const saveBackupToServer = async () => {
@@ -203,6 +215,7 @@ export function AdminScan() {
       setPhoto(await cropPhotoDataUrl(photo, screenRoi))
       setWinRoi(INITIAL_WIN_ROI)
       setLoseRoi(INITIAL_LOSE_ROI)
+      setRoiZoom(1)
       setBackupStatus("idle")
       setStep("adjust")
     } catch {
@@ -527,25 +540,48 @@ export function AdminScan() {
               >
                 <RotateCw className="w-4 h-4" />
               </button>
+              <div className="w-px h-5 bg-white/20 mx-0.5" />
+              <button
+                type="button"
+                onClick={zoomRoiOut}
+                disabled={roiZoom <= ROI_ZOOM_MIN}
+                aria-label="ซูมออก"
+                className="p-1.5 rounded-lg hover:bg-white/10 disabled:opacity-30 transition-colors"
+              >
+                <ZoomOut className="w-4 h-4" />
+              </button>
+              <span className="text-xs font-semibold text-white/70 w-8 text-center">{roiZoom}x</span>
+              <button
+                type="button"
+                onClick={zoomRoiIn}
+                disabled={roiZoom >= ROI_ZOOM_MAX}
+                aria-label="ซูมเข้า"
+                className="p-1.5 rounded-lg hover:bg-white/10 disabled:opacity-30 transition-colors"
+              >
+                <ZoomIn className="w-4 h-4" />
+              </button>
             </div>
             <p className="text-xs text-white/70">
               ลาก<span className="font-semibold text-win"> กรอบเขียว </span>ครอบตัวเลขคะแนนของ
               <span className="font-semibold text-white"> {winnerName ?? "ทีมที่ชนะ"} </span>
               และ<span className="font-semibold text-lose"> กรอบแดง </span>ครอบคะแนนของ
               <span className="font-semibold text-white"> {loserName ?? "ทีมที่แพ้"} </span>
-              — มุมล่างขวาของกรอบใช้ปรับขนาด
+              — มุมล่างขวาของกรอบใช้ปรับขนาด ซูมเข้าถ้ากรอบเล็กเกินไป
             </p>
           </div>
 
-          {/* Photo + ROI boxes — scrolls internally if the photo is taller
-              than the available space; the action bar below never moves */}
-          <div className="flex-1 min-h-0 overflow-y-auto p-3">
+          {/* Photo + ROI boxes — scrolls both ways once zoomed in, so a
+              small ROI box on a phone screen can be dragged precisely
+              instead of fought with at native size; the action bar below
+              never moves */}
+          <div className="flex-1 min-h-0 overflow-auto p-3">
             <RoiEditor
               photo={photo}
               winRoi={winRoi}
               loseRoi={loseRoi}
               onWinRoi={setWinRoi}
               onLoseRoi={setLoseRoi}
+              zoom={roiZoom}
             />
           </div>
 
@@ -968,17 +1004,23 @@ function RoiEditor({
   loseRoi,
   onWinRoi,
   onLoseRoi,
+  zoom = 1,
 }: {
   photo: string
   winRoi: ScoreRoi
   loseRoi: ScoreRoi
   onWinRoi: (roi: ScoreRoi) => void
   onLoseRoi: (roi: ScoreRoi) => void
+  zoom?: number
 }) {
   const containerRef = useRef<HTMLDivElement>(null)
 
   return (
-    <div ref={containerRef} className="relative w-full select-none rounded-lg overflow-hidden border border-white/20">
+    <div
+      ref={containerRef}
+      className="relative select-none rounded-lg overflow-hidden border border-white/20"
+      style={{ width: `${zoom * 100}%` }}
+    >
       <img src={photo} alt="ภาพหน้าจอผลการแข่งขัน" className="w-full block" draggable={false} />
       <RoiBox roi={winRoi} onChange={onWinRoi} containerRef={containerRef} label="ชนะ" tone="win" />
       <RoiBox roi={loseRoi} onChange={onLoseRoi} containerRef={containerRef} label="แพ้" tone="lose" />
