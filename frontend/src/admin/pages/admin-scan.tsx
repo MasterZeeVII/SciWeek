@@ -20,6 +20,41 @@ const INITIAL_WIN_ROI: ScoreRoi = { x: 0.26, y: 0.12, width: 0.15, height: 0.08 
 const INITIAL_LOSE_ROI: ScoreRoi = { x: 0.56, y: 0.12, width: 0.15, height: 0.08 }
 // Whole photo is kept as the verification evidence.
 const FULL_ROI: ScoreRoi = { x: 0, y: 0, width: 1, height: 1 }
+
+// The camera/phone-holder setup barely changes between games, so the win/
+// lose boxes staff drag into place are almost always in the same spot shot
+// to shot. Remembering that position (and starting new photos there instead
+// of the generic default) turns "drag two boxes every game" into "drag them
+// once, then confirm" — this was the actual time cost, not box size.
+const ROI_STORAGE_KEY_WIN = "sciweek-scan-roi-win"
+const ROI_STORAGE_KEY_LOSE = "sciweek-scan-roi-lose"
+
+function isScoreRoi(value: unknown): value is ScoreRoi {
+  const v = value as Partial<ScoreRoi> | null
+  return (
+    !!v &&
+    typeof v.x === "number" && typeof v.y === "number" &&
+    typeof v.width === "number" && typeof v.height === "number"
+  )
+}
+
+function loadStoredRoi(key: string, fallback: ScoreRoi): ScoreRoi {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(key) ?? "")
+    return isScoreRoi(parsed) ? parsed : fallback
+  } catch {
+    return fallback
+  }
+}
+
+function saveStoredRoi(key: string, roi: ScoreRoi) {
+  try {
+    localStorage.setItem(key, JSON.stringify(roi))
+  } catch {
+    // Private browsing / storage full — losing the remembered position
+    // just falls back to the old "drag it every time" behavior.
+  }
+}
 // Starting crop box for the "trim the raw camera frame down to just the
 // screen" step — inset a bit from the edges so staff can see there's a
 // box to drag, not react to it as pre-cropped already.
@@ -117,8 +152,8 @@ export function AdminScan() {
   // resets to "idle" any time the photo itself changes (crop/rotate) since
   // a stale backup no longer matches what's on screen.
   const [backupStatus, setBackupStatus] = useState<BackupStatus>("idle")
-  const [winRoi, setWinRoi] = useState<ScoreRoi>(INITIAL_WIN_ROI)
-  const [loseRoi, setLoseRoi] = useState<ScoreRoi>(INITIAL_LOSE_ROI)
+  const [winRoi, setWinRoi] = useState<ScoreRoi>(() => loadStoredRoi(ROI_STORAGE_KEY_WIN, INITIAL_WIN_ROI))
+  const [loseRoi, setLoseRoi] = useState<ScoreRoi>(() => loadStoredRoi(ROI_STORAGE_KEY_LOSE, INITIAL_LOSE_ROI))
   // Zoom on the score-ROI step only — the boxes default to a small slice of
   // the photo, and on a phone screen (e.g. iPhone 13) that's a few dozen
   // CSS px, too small to drag precisely. Plain width scaling + native
@@ -129,6 +164,13 @@ export function AdminScan() {
   const ROI_ZOOM_MAX = 3
   const zoomRoiIn = () => setRoiZoom((z) => Math.min(ROI_ZOOM_MAX, Math.round((z + 0.5) * 10) / 10))
   const zoomRoiOut = () => setRoiZoom((z) => Math.max(ROI_ZOOM_MIN, Math.round((z - 0.5) * 10) / 10))
+  const resetRoiToDefault = () => {
+    setWinRoi(INITIAL_WIN_ROI)
+    setLoseRoi(INITIAL_LOSE_ROI)
+  }
+
+  useEffect(() => { saveStoredRoi(ROI_STORAGE_KEY_WIN, winRoi) }, [winRoi])
+  useEffect(() => { saveStoredRoi(ROI_STORAGE_KEY_LOSE, loseRoi) }, [loseRoi])
   const [busy, setBusy] = useState(false)
   // Two-phase feedback while the single scan request runs: the upload is
   // quick, the OCR read is the long part — showing which phase we're in
@@ -213,8 +255,11 @@ export function AdminScan() {
     setCropping(true)
     try {
       setPhoto(await cropPhotoDataUrl(photo, screenRoi))
-      setWinRoi(INITIAL_WIN_ROI)
-      setLoseRoi(INITIAL_LOSE_ROI)
+      // Deliberately not resetting winRoi/loseRoi here — the camera setup
+      // barely moves game to game, so whatever position staff last landed
+      // on (persisted above) is almost always still correct, or close
+      // enough to just confirm. A dedicated "reset boxes" affordance covers
+      // the case where it's actually wrong.
       setRoiZoom(1)
       setBackupStatus("idle")
       setStep("adjust")
@@ -567,6 +612,14 @@ export function AdminScan() {
               และ<span className="font-semibold text-lose"> กรอบแดง </span>ครอบคะแนนของ
               <span className="font-semibold text-white"> {loserName ?? "ทีมที่แพ้"} </span>
               — มุมล่างขวาของกรอบใช้ปรับขนาด ซูมเข้าถ้ากรอบเล็กเกินไป
+              {" "}
+              <button
+                type="button"
+                onClick={resetRoiToDefault}
+                className="font-semibold text-brand hover:underline"
+              >
+                รีเซ็ตกรอบ
+              </button>
             </p>
           </div>
 
