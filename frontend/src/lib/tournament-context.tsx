@@ -99,6 +99,7 @@ interface TournamentContextType {
     },
     winnerTeamId?: string | null,
   ) => Promise<{ team1Score: number | null; team2Score: number | null; evidenceFull: string | null }>
+  backupGamePhoto: (matchId: string, gameIndex: number, image: string) => Promise<string>
   resetTournament: () => Promise<void>
   refresh: () => Promise<void>
   getBracketSize: () => BracketSize | null
@@ -469,6 +470,23 @@ export function TournamentProvider({ children }: { children: ReactNode }) {
     [applyState, tournament?.matches],
   )
 
+  // Saves the raw/cropped photo to the server as soon as it's captured, well
+  // before OCR runs — so if a scan fails or the wizard is abandoned mid-flow
+  // in a rush, the shot still exists server-side instead of only in that
+  // one device's memory.
+  const backupGamePhoto = useCallback(
+    async (matchId: string, gameIndex: number, image: string) => {
+      const match = tournament?.matches.find((item) => item.id === matchId)
+      const game = match?.games[gameIndex]
+      if (!game) {
+        throw new Error("Game not found.")
+      }
+      const response = await api.backupPhoto(game.id, image)
+      return response.path
+    },
+    [tournament?.matches],
+  )
+
   const resetTournament = useCallback(async () => {
     if (!selectedDivisionId) return
     try {
@@ -501,6 +519,7 @@ export function TournamentProvider({ children }: { children: ReactNode }) {
         updateMatchResult,
         rejectGameScan,
         scanGameScore,
+        backupGamePhoto,
         resetTournament,
         refresh,
         getBracketSize,

@@ -2,8 +2,8 @@ import { useCallback, useEffect, useRef, useState } from "react"
 import { useLocation, useNavigate } from "react-router-dom"
 import { motion } from "motion/react"
 import {
-  ArrowLeft, Camera, CheckCircle2, CloudUpload, Download, ImageUp, Loader2, RefreshCcw, RotateCcw,
-  RotateCw, ScanLine, ScanText, Swords, Trophy,
+  ArrowLeft, Camera, CheckCircle2, CloudUpload, ImageUp, Loader2, RefreshCcw, RotateCcw,
+  RotateCw, ScanLine, ScanText, Swords, Trophy, UploadCloud,
 } from "lucide-react"
 
 import type { ScoreRoi } from "@/lib/api"
@@ -78,21 +78,7 @@ function cropPhotoDataUrl(dataUrl: string, roi: ScoreRoi): Promise<string> {
   })
 }
 
-// Saves whatever's currently in `photo` state to the device's own storage —
-// the result screen on the players' phone only stays up for a few seconds,
-// so if a scan comes back wrong, staff need the original shot to retry from
-// (re-adjust ROI, re-upload) instead of having to recreate a screen that's
-// already gone.
-function downloadPhoto(dataUrl: string, target: Target) {
-  const safe = (s: string) => s.replace(/[^a-zA-Z0-9ก-๙]+/g, "_")
-  const filename = `scan_${safe(target.match.team1?.name ?? "T1")}_vs_${safe(target.match.team2?.name ?? "T2")}_g${target.gameIndex + 1}.jpg`
-  const a = document.createElement("a")
-  a.href = dataUrl
-  a.download = filename
-  document.body.appendChild(a)
-  a.click()
-  document.body.removeChild(a)
-}
+type BackupStatus = "idle" | "saving" | "saved" | "error"
 
 type Step = "pick" | "winner" | "photo" | "crop" | "adjust" | "done"
 
@@ -116,7 +102,7 @@ function seriesScore(match: Match): [number, number] {
 }
 
 export function AdminScan() {
-  const { user, tournament, updateMatchResult, scanGameScore, getRoundConfigs } = useTournament()
+  const { user, tournament, updateMatchResult, scanGameScore, backupGamePhoto, getRoundConfigs } = useTournament()
   const canVerify = hasRole(user, "MONITOR")
   const location = useLocation()
   const navigate = useNavigate()
@@ -127,6 +113,10 @@ export function AdminScan() {
   const [photo, setPhoto] = useState<string | null>(null)
   const [screenRoi, setScreenRoi] = useState<ScoreRoi>(INITIAL_SCREEN_ROI)
   const [cropping, setCropping] = useState(false)
+  // Server-side backup of the current photo, independent of the OCR scan —
+  // resets to "idle" any time the photo itself changes (crop/rotate) since
+  // a stale backup no longer matches what's on screen.
+  const [backupStatus, setBackupStatus] = useState<BackupStatus>("idle")
   const [winRoi, setWinRoi] = useState<ScoreRoi>(INITIAL_WIN_ROI)
   const [loseRoi, setLoseRoi] = useState<ScoreRoi>(INITIAL_LOSE_ROI)
   const [busy, setBusy] = useState(false)
@@ -156,6 +146,7 @@ export function AdminScan() {
       // accidentally scans with boxes over the wrong spot.
       setWinRoi(INITIAL_WIN_ROI)
       setLoseRoi(INITIAL_LOSE_ROI)
+      setBackupStatus("idle")
     } catch {
       setError("หมุนภาพไม่สำเร็จ")
     } finally {
@@ -191,6 +182,18 @@ export function AdminScan() {
     setResult(null)
     setError(null)
     setEvidencePath(null)
+    setBackupStatus("idle")
+  }
+
+  const saveBackupToServer = async () => {
+    if (!target || !photo || backupStatus === "saving") return
+    setBackupStatus("saving")
+    try {
+      await backupGamePhoto(target.match.id, target.gameIndex, photo)
+      setBackupStatus("saved")
+    } catch {
+      setBackupStatus("error")
+    }
   }
 
   const confirmCrop = async () => {
@@ -200,6 +203,7 @@ export function AdminScan() {
       setPhoto(await cropPhotoDataUrl(photo, screenRoi))
       setWinRoi(INITIAL_WIN_ROI)
       setLoseRoi(INITIAL_LOSE_ROI)
+      setBackupStatus("idle")
       setStep("adjust")
     } catch {
       setError("ตัดกรอบภาพไม่สำเร็จ")
@@ -476,15 +480,7 @@ export function AdminScan() {
               <RefreshCcw className="w-4 h-4" />
               ถ่ายใหม่
             </button>
-            <button
-              type="button"
-              onClick={() => downloadPhoto(photo, target)}
-              title="บันทึกภาพนี้ลงเครื่อง เผื่อสแกนพลาดจะได้ใช้ภาพเดิมแทนการถ่ายใหม่"
-              aria-label="บันทึกภาพลงเครื่อง"
-              className="flex items-center gap-1.5 text-sm font-medium text-white/80 border border-white/20 px-3 py-2.5 rounded-lg hover:text-white transition-colors"
-            >
-              <Download className="w-4 h-4" />
-            </button>
+            <BackupPhotoButton status={backupStatus} onSave={() => void saveBackupToServer()} />
             <button
               type="button"
               disabled={cropping}
@@ -566,15 +562,7 @@ export function AdminScan() {
               <RefreshCcw className="w-4 h-4" />
               ถ่ายใหม่
             </button>
-            <button
-              type="button"
-              onClick={() => downloadPhoto(photo, target)}
-              title="บันทึกภาพนี้ลงเครื่อง เผื่อสแกนพลาดจะได้ใช้ภาพเดิมแทนการถ่ายใหม่"
-              aria-label="บันทึกภาพลงเครื่อง"
-              className="flex items-center gap-1.5 text-sm font-medium text-white/80 border border-white/20 px-3 py-2.5 rounded-lg hover:text-white transition-colors"
-            >
-              <Download className="w-4 h-4" />
-            </button>
+            <BackupPhotoButton status={backupStatus} onSave={() => void saveBackupToServer()} />
             <button
               type="button"
               disabled={busy}
@@ -798,6 +786,39 @@ function ProgressStage({
         {label}
       </p>
     </div>
+  )
+}
+
+/* ── Server-side photo backup — saves the current shot to the server ahead
+       of OCR, so a failed scan still leaves a recoverable copy that isn't
+       stuck on one device ────────────────────────────────────────────── */
+
+function BackupPhotoButton({ status, onSave }: { status: BackupStatus; onSave: () => void }) {
+  const label =
+    status === "saved" ? "บันทึกแล้ว" : status === "error" ? "บันทึกไม่สำเร็จ ลองใหม่" : "บันทึกไว้ที่เซิร์ฟเวอร์"
+  return (
+    <button
+      type="button"
+      onClick={onSave}
+      disabled={status === "saving"}
+      title="บันทึกภาพนี้ไว้ที่เซิร์ฟเวอร์ เผื่อสแกนพลาดจะได้ใช้ภาพเดิมแทนการถ่ายใหม่ โดยไม่ต้องพึ่งเครื่องนี้เครื่องเดียว"
+      aria-label={label}
+      className={`flex items-center gap-1.5 text-sm font-medium border px-3 py-2.5 rounded-lg transition-colors disabled:opacity-60 ${
+        status === "saved"
+          ? "text-win border-win/40"
+          : status === "error"
+          ? "text-lose border-lose/40"
+          : "text-white/80 border-white/20 hover:text-white"
+      }`}
+    >
+      {status === "saving" ? (
+        <Loader2 className="w-4 h-4 animate-spin" />
+      ) : status === "saved" ? (
+        <CheckCircle2 className="w-4 h-4" />
+      ) : (
+        <UploadCloud className="w-4 h-4" />
+      )}
+    </button>
   )
 }
 

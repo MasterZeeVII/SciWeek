@@ -157,4 +157,10 @@ export const api = {
       body: JSON.stringify({ gameId, ...data }),
     })
   },
+  backupPhoto(gameId: number, image: string) {
+    return request<{ success: true; path: string }>("/api/scan/backup/", {
+      method: "POST",
+      body: JSON.stringify({ gameId, image }),
+    })
+  },
 }

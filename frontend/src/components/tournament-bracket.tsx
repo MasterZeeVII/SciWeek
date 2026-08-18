@@ -276,7 +276,7 @@ function MatchDetailPanel({
         )}
 
         {/* Team rosters */}
-        {(match.team1?.members?.length || match.team2?.members?.length) && (
+        {((match.team1?.members?.length ?? 0) > 0 || (match.team2?.members?.length ?? 0) > 0) && (
           <div className="mt-4 grid grid-cols-2 gap-3 border-t border-border pt-4">
             {match.team1 && match.team1.members?.length > 0 && (
               <div>

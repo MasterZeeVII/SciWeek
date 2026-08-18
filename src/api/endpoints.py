@@ -5,9 +5,12 @@ return JSON errors, never redirects. CSRF middleware is not installed —
 the SPA authenticates purely by session cookie.
 """
 
+import base64
 import json
-from datetime import date
+from datetime import date, datetime
+from pathlib import Path
 
+from django.conf import settings
 from django.core.cache import cache
 from django.core.exceptions import ValidationError
 from django.db.models import Max
@@ -351,6 +354,43 @@ def api_scan_score(request):
             "evidence_full": result.evidence_full,
             "state": state,
         }
+    )
+
+
+@api_handler("POST")
+def api_backup_photo(request):
+    """Save a raw scan photo to the server as soon as it's captured, before
+    OCR even runs — a plain base64 write with no cv2/easyocr dependency, so
+    it stays fast and reliable in a rush. Lets field staff recover the shot
+    from the server if a scan fails or a device is unavailable afterward,
+    instead of depending on that one phone's local downloads."""
+    require_role(
+        request,
+        SystemUser.Role.ADMIN,
+        SystemUser.Role.MONITOR,
+        SystemUser.Role.FIELD_STAFF,
+    )
+    data = _json_body(request)
+    image_data = data.get("image")
+    if not image_data or "," not in image_data:
+        raise ValidationError("Image must be a data URL.")
+    game_id = data.get("gameId") or data.get("game_id")
+
+    encoded = image_data.split(",", 1)[1]
+    try:
+        image_bytes = base64.b64decode(encoded)
+    except (ValueError, TypeError):
+        raise ValidationError("Invalid image data.")
+
+    folder = Path(settings.MEDIA_ROOT) / "evidence" / "raw"
+    folder.mkdir(parents=True, exist_ok=True)
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+    suffix = f"_game{game_id}" if game_id else ""
+    file_path = folder / f"backup_{timestamp}{suffix}.jpg"
+    file_path.write_bytes(image_bytes)
+
+    return JsonResponse(
+        {"success": True, "path": str(file_path.relative_to(settings.MEDIA_ROOT)).replace("\\", "/")}
     )
 
 
