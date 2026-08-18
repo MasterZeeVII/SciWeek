@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react"
 import { useLocation, useNavigate } from "react-router-dom"
 import { motion } from "motion/react"
 import {
-  ArrowLeft, Camera, CheckCircle2, CloudUpload, ImageUp, Loader2, RefreshCcw, RotateCcw,
+  ArrowLeft, Camera, CheckCircle2, CloudUpload, Download, ImageUp, Loader2, RefreshCcw, RotateCcw,
   RotateCw, ScanLine, ScanText, Swords, Trophy,
 } from "lucide-react"
 
@@ -76,6 +76,22 @@ function cropPhotoDataUrl(dataUrl: string, roi: ScoreRoi): Promise<string> {
     img.onerror = () => reject(new Error("Cannot load image to crop."))
     img.src = dataUrl
   })
+}
+
+// Saves whatever's currently in `photo` state to the device's own storage —
+// the result screen on the players' phone only stays up for a few seconds,
+// so if a scan comes back wrong, staff need the original shot to retry from
+// (re-adjust ROI, re-upload) instead of having to recreate a screen that's
+// already gone.
+function downloadPhoto(dataUrl: string, target: Target) {
+  const safe = (s: string) => s.replace(/[^a-zA-Z0-9ก-๙]+/g, "_")
+  const filename = `scan_${safe(target.match.team1?.name ?? "T1")}_vs_${safe(target.match.team2?.name ?? "T2")}_g${target.gameIndex + 1}.jpg`
+  const a = document.createElement("a")
+  a.href = dataUrl
+  a.download = filename
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
 }
 
 type Step = "pick" | "winner" | "photo" | "crop" | "adjust" | "done"
@@ -462,6 +478,15 @@ export function AdminScan() {
             </button>
             <button
               type="button"
+              onClick={() => downloadPhoto(photo, target)}
+              title="บันทึกภาพนี้ลงเครื่อง เผื่อสแกนพลาดจะได้ใช้ภาพเดิมแทนการถ่ายใหม่"
+              aria-label="บันทึกภาพลงเครื่อง"
+              className="flex items-center gap-1.5 text-sm font-medium text-white/80 border border-white/20 px-3 py-2.5 rounded-lg hover:text-white transition-colors"
+            >
+              <Download className="w-4 h-4" />
+            </button>
+            <button
+              type="button"
               disabled={cropping}
               onClick={() => void confirmCrop()}
               className="flex-1 flex items-center justify-center gap-2 bg-brand text-brand-foreground text-sm font-semibold px-4 py-2.5 rounded-lg hover:opacity-90 disabled:opacity-50 transition-opacity"
@@ -540,6 +565,15 @@ export function AdminScan() {
             >
               <RefreshCcw className="w-4 h-4" />
               ถ่ายใหม่
+            </button>
+            <button
+              type="button"
+              onClick={() => downloadPhoto(photo, target)}
+              title="บันทึกภาพนี้ลงเครื่อง เผื่อสแกนพลาดจะได้ใช้ภาพเดิมแทนการถ่ายใหม่"
+              aria-label="บันทึกภาพลงเครื่อง"
+              className="flex items-center gap-1.5 text-sm font-medium text-white/80 border border-white/20 px-3 py-2.5 rounded-lg hover:text-white transition-colors"
+            >
+              <Download className="w-4 h-4" />
             </button>
             <button
               type="button"

@@ -30,31 +30,45 @@ type NavItem = { to: string; label: string; icon: typeof Trophy; end: boolean; r
 // and FIELD_STAFF tap between all afternoon during a match, "admin" is
 // housekeeping. A group with no visible items (e.g. FIELD_STAFF has no
 // setup access) simply doesn't render.
-const navGroups: { label: string | null; items: NavItem[] }[] = [
-  {
-    label: null,
-    items: [{ to: "/admin", label: "ภาพรวม", icon: LayoutDashboard, end: true, roles: ["MONITOR", "FIELD_STAFF"] }],
-  },
-  {
-    label: "ตั้งค่า",
-    items: [
-      { to: "/admin/tournaments", label: "ทัวร์นาเมนต์", icon: Trophy, end: false, roles: [] },
-      { to: "/admin/participants", label: "ผู้เข้าร่วม", icon: Users, end: false, roles: [] },
-    ],
-  },
-  {
-    label: "ปฏิบัติการสด",
-    items: [
-      { to: "/admin/matches", label: "ผลการแข่งขัน", icon: Swords, end: false, roles: ["MONITOR"] },
-      { to: "/admin/scan", label: "สแกนคะแนน", icon: Camera, end: false, roles: ["MONITOR", "FIELD_STAFF"] },
-      { to: "/admin/bracket", label: "สายการแข่งขัน", icon: Network, end: false, roles: ["MONITOR", "FIELD_STAFF"] },
-    ],
-  },
-  {
-    label: "ผู้ดูแลระบบ",
-    items: [{ to: "/admin/users", label: "ผู้ใช้งาน", icon: UserCog, end: false, roles: [] }],
-  },
-]
+//
+// Setup is season-scoped: teams and bracket generation both live inside
+// /admin/tournaments/:id, so the sidebar links the season list plus a
+// shortcut straight into the active season's page — there is deliberately
+// no standalone "participants" entry any more (that route now redirects).
+function buildNavGroups(activeTournamentId: string | null): { label: string | null; items: NavItem[] }[] {
+  const setupItems: NavItem[] = [
+    { to: "/admin/tournaments", label: "ทุกฤดูกาล", icon: Trophy, end: true, roles: [] },
+  ]
+  if (activeTournamentId) {
+    setupItems.push({
+      to: `/admin/tournaments/${activeTournamentId}`,
+      label: "ฤดูกาลปัจจุบัน",
+      icon: Users,
+      end: false,
+      roles: [],
+    })
+  }
+
+  return [
+    {
+      label: null,
+      items: [{ to: "/admin", label: "ภาพรวม", icon: LayoutDashboard, end: true, roles: ["MONITOR", "FIELD_STAFF"] }],
+    },
+    { label: "ตั้งค่า", items: setupItems },
+    {
+      label: "ปฏิบัติการสด",
+      items: [
+        { to: "/admin/matches", label: "ผลการแข่งขัน", icon: Swords, end: false, roles: ["MONITOR"] },
+        { to: "/admin/scan", label: "สแกนคะแนน", icon: Camera, end: false, roles: ["MONITOR", "FIELD_STAFF"] },
+        { to: "/admin/bracket", label: "สายการแข่งขัน", icon: Network, end: false, roles: ["MONITOR", "FIELD_STAFF"] },
+      ],
+    },
+    {
+      label: "ผู้ดูแลระบบ",
+      items: [{ to: "/admin/users", label: "ผู้ใช้งาน", icon: UserCog, end: false, roles: [] }],
+    },
+  ]
+}
 
 export const ROLE_LABEL: Record<Role, string> = {
   ADMIN: "ผู้ดูแลระบบ",
@@ -63,10 +77,10 @@ export const ROLE_LABEL: Record<Role, string> = {
 }
 
 export function AdminSidebar({ open, onClose }: { open: boolean; onClose: () => void }) {
-  const { user, logout } = useTournament()
+  const { user, logout, tournament } = useTournament()
   if (!user) return null
 
-  const groups = navGroups
+  const groups = buildNavGroups(tournament?.id ?? null)
     .map((group) => ({ ...group, items: group.items.filter((item) => hasRole(user, ...item.roles)) }))
     .filter((group) => group.items.length > 0)
 
