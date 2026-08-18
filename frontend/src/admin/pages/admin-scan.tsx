@@ -953,7 +953,7 @@ function PhotoStep({
         <label className="w-full flex items-center justify-center gap-2 text-sm font-medium text-white/80 border border-white/20 px-4 py-3 rounded-lg hover:text-white cursor-pointer transition-colors">
           <ImageUp className="w-4 h-4" />
           เลือกรูป / ใช้กล้องของเครื่อง
-          <input type="file" accept="image/*" capture="environment" className="hidden" onChange={onFile} />
+          <input type="file" accept="image/*" className="hidden" onChange={onFile} />
         </label>
       </div>
     </div>
