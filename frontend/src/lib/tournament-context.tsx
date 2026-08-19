@@ -175,9 +175,25 @@ export function TournamentProvider({ children }: { children: ReactNode }) {
         return
       }
       const bracketSize = inferBracketSize(nextTournament.teams.length)
+      // A background poll must not clobber an in-progress, unsaved
+      // first-round queue reorder: reorderTeams/shuffleQueue only ever
+      // touch local state (order is persisted server-side only once
+      // "generate bracket" sends it), so if the poll's team set is the
+      // same as what's already on screen and no bracket exists yet,
+      // keep the order the user already arranged.
+      const prev = tournamentRef.current
+      const teams =
+        options?.notify &&
+        prev &&
+        prev.matches.length === 0 &&
+        nextTournament.matches.length === 0 &&
+        prev.teams.length === nextTournament.teams.length &&
+        prev.teams.every((t) => nextTournament.teams.some((nt) => nt.id === t.id))
+          ? prev.teams.map((t) => nextTournament.teams.find((nt) => nt.id === t.id)!)
+          : nextTournament.teams
       const merged: Tournament = {
         ...nextTournament,
-        teams: reseedTeams(nextTournament.teams),
+        teams: reseedTeams(teams),
         roundConfigs:
           nextTournament.roundConfigs.length > 0
             ? nextTournament.roundConfigs
